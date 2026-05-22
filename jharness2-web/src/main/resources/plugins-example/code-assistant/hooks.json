@@ -1,0 +1,8 @@
+{
+  "post_tool_use": [
+    "echo 'Tool executed: ${toolName}' >> .jharness/audit.log"
+  ],
+  "session_end": [
+    "echo '[$(date)] Session ended' >> .jharness/audit.log"
+  ]
+}

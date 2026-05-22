@@ -1,0 +1,11 @@
+{
+  "name": "code-assistant",
+  "version": "1.0.0",
+  "description": "代码辅助插件，提供代码审查、重构建议和文档生成等技能",
+  "enabledByDefault": true,
+  "skillsDir": "skills",
+  "commandsDir": "commands",
+  "agentsDir": "agents",
+  "hooksFile": "hooks.json",
+  "mcpFile": "mcp.json"
+}

@@ -1,0 +1,72 @@
+server:
+  port: 8080
+
+spring:
+  application:
+    name: jharness2
+  datasource:
+    url: jdbc:h2:file:./data/jharness2-db
+    driver-class-name: org.h2.Driver
+    username: sa
+    password:
+  h2:
+    console:
+      enabled: true
+      path: /h2-console
+  jpa:
+    hibernate:
+      ddl-auto: update
+    show-sql: false
+    open-in-view: false
+    properties:
+      hibernate:
+        format_sql: true
+  jackson:
+    serialization:
+      write-dates-as-timestamps: false
+    default-property-inclusion: non_null
+
+# JHarness2 配置
+jharness2:
+  engine:
+    default-model: qwen3.5:4b
+    default-base-url: http://localhost:11434/v1
+    default-api-key: ollama
+    max-tokens: 4096
+    max-turns: 12
+    connect-timeout-seconds: 30
+    read-timeout-seconds: 300
+    write-timeout-seconds: 30
+    max-engines-per-user: 5
+    max-total-engines: 200
+    engine-idle-timeout-minutes: 30
+    denied-command-patterns:
+      - "rm -rf /*"
+      - "sudo *"
+      - "shutdown*"
+      - "reboot*"
+      - "mkfs*"
+      - "dd if=*"
+
+  workspace:
+    root: ./data/workspaces
+
+  security:
+    jwt:
+      secret: pleaseChangeThisSecretKeyInProductionEnvironment2024JHarness2
+      expiration-ms: 86400000
+
+# Actuator
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics
+  endpoint:
+    health:
+      show-details: when_authorized
+
+logging:
+  level:
+    io.leavesfly.jharness2: INFO
+    org.springframework.security: WARN
