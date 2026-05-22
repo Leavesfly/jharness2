@@ -2,6 +2,7 @@ package io.leavesfly.jharness2.storage;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import io.leavesfly.jharness2.core.spi.SessionPersistenceService;
 import io.leavesfly.jharness2.storage.entity.SessionEntity;
 import io.leavesfly.jharness2.storage.repository.SessionRepository;
 import org.slf4j.Logger;
@@ -13,7 +14,7 @@ import java.util.List;
 import java.util.Optional;
 
 @Service
-public class SessionStorageService {
+public class SessionStorageService implements SessionPersistenceService {
 
     private static final Logger logger = LoggerFactory.getLogger(SessionStorageService.class);
     private final SessionRepository sessionRepository;

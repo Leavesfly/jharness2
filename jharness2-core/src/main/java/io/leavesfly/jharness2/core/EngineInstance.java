@@ -1,6 +1,6 @@
 package io.leavesfly.jharness2.core;
 
-import io.leavesfly.jharness2.core.engine.QueryEngine;
+import io.leavesfly.jharness2.engine.QueryEngine;
 
 import java.time.Instant;
 import java.util.concurrent.atomic.AtomicReference;

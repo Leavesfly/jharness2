@@ -1,11 +1,11 @@
 package io.leavesfly.jharness2.core;
 
-import io.leavesfly.jharness2.core.engine.stream.AssistantTextDelta;
-import io.leavesfly.jharness2.core.engine.stream.AssistantTurnComplete;
-import io.leavesfly.jharness2.core.engine.stream.StreamEvent;
-import io.leavesfly.jharness2.core.engine.stream.ToolExecutionCompleted;
-import io.leavesfly.jharness2.core.engine.stream.ToolExecutionStarted;
-import io.leavesfly.jharness2.core.engine.stream.UsageReport;
+import io.leavesfly.jharness2.engine.stream.AssistantTextDelta;
+import io.leavesfly.jharness2.engine.stream.AssistantTurnComplete;
+import io.leavesfly.jharness2.engine.stream.StreamEvent;
+import io.leavesfly.jharness2.engine.stream.ToolExecutionCompleted;
+import io.leavesfly.jharness2.engine.stream.ToolExecutionStarted;
+import io.leavesfly.jharness2.engine.stream.UsageReport;
 
 /**
  * 将内核 {@link StreamEvent} 转换为 Web 层可序列化的 DTO。

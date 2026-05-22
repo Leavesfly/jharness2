@@ -5,7 +5,7 @@
 `QueryEngine` 是 JHarness2 的 AI Agent 核心运行时，驱动 **ReAct 循环**（Reasoning + Acting）：LLM 推理 → 工具调用 → 结果反馈 → 再推理，直到任务完成或达到最大轮次。
 
 所在模块：`jharness2-engine`  
-包路径：`io.leavesfly.jharness2.core.engine.QueryEngine`
+包路径：`io.leavesfly.jharness2.engine.QueryEngine`
 
 ## ReAct 循环
 

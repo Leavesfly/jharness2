@@ -1,26 +1,26 @@
 package io.leavesfly.jharness2.core;
 
-import io.leavesfly.jharness2.core.engine.OpenAiClient;
-import io.leavesfly.jharness2.core.engine.QueryEngine;
-import io.leavesfly.jharness2.core.engine.agent.AgentOrchestrator;
-import io.leavesfly.jharness2.core.engine.compaction.MessageCompactionService;
-import io.leavesfly.jharness2.core.engine.hook.HookExecutor;
-import io.leavesfly.jharness2.core.engine.mcp.McpManager;
-import io.leavesfly.jharness2.core.engine.permission.PermissionChecker;
-import io.leavesfly.jharness2.core.engine.permission.PermissionMode;
-import io.leavesfly.jharness2.core.engine.plugin.PluginRegistry;
-import io.leavesfly.jharness2.core.engine.skill.SkillRegistry;
-import io.leavesfly.jharness2.core.engine.task.BackgroundTaskManager;
-import io.leavesfly.jharness2.core.engine.tool.ToolRegistry;
-import io.leavesfly.jharness2.core.engine.tool.builtin.file.FileReadTool;
-import io.leavesfly.jharness2.core.engine.tool.builtin.file.FileWriteTool;
-import io.leavesfly.jharness2.core.engine.tool.builtin.file.GrepTool;
-import io.leavesfly.jharness2.core.engine.tool.builtin.file.GlobTool;
-import io.leavesfly.jharness2.core.engine.tool.builtin.shell.BashTool;
-import io.leavesfly.jharness2.core.engine.tool.builtin.meta.SkillTool;
-import io.leavesfly.jharness2.core.engine.tool.builtin.meta.SubAgentTool;
-import io.leavesfly.jharness2.core.engine.skill.SkillLoader;
-import io.leavesfly.jharness2.storage.SessionStorageService;
+import io.leavesfly.jharness2.engine.OpenAiClient;
+import io.leavesfly.jharness2.engine.QueryEngine;
+import io.leavesfly.jharness2.engine.agent.AgentOrchestrator;
+import io.leavesfly.jharness2.engine.compaction.MessageCompactionService;
+import io.leavesfly.jharness2.engine.hook.HookExecutor;
+import io.leavesfly.jharness2.engine.mcp.McpManager;
+import io.leavesfly.jharness2.engine.permission.PermissionChecker;
+import io.leavesfly.jharness2.engine.permission.PermissionMode;
+import io.leavesfly.jharness2.engine.plugin.PluginRegistry;
+import io.leavesfly.jharness2.engine.skill.SkillRegistry;
+import io.leavesfly.jharness2.engine.task.BackgroundTaskManager;
+import io.leavesfly.jharness2.engine.tool.ToolRegistry;
+import io.leavesfly.jharness2.engine.tool.builtin.file.FileReadTool;
+import io.leavesfly.jharness2.engine.tool.builtin.file.FileWriteTool;
+import io.leavesfly.jharness2.engine.tool.builtin.file.GrepTool;
+import io.leavesfly.jharness2.engine.tool.builtin.file.GlobTool;
+import io.leavesfly.jharness2.engine.tool.builtin.shell.BashTool;
+import io.leavesfly.jharness2.engine.tool.builtin.meta.SkillTool;
+import io.leavesfly.jharness2.engine.tool.builtin.meta.SubAgentTool;
+import io.leavesfly.jharness2.engine.skill.SkillLoader;
+import io.leavesfly.jharness2.core.spi.SessionPersistenceService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
@@ -35,11 +35,11 @@ public class DefaultEngineFactory implements EngineFactory {
 
     private final EngineConfig engineConfig;
     private final WorkspaceInitializer workspaceInitializer;
-    private final SessionStorageService sessionStorageService;
+    private final SessionPersistenceService sessionStorageService;
 
     public DefaultEngineFactory(EngineConfig engineConfig,
                                 WorkspaceInitializer workspaceInitializer,
-                                SessionStorageService sessionStorageService) {
+                                SessionPersistenceService sessionStorageService) {
         this.engineConfig = engineConfig;
         this.workspaceInitializer = workspaceInitializer;
         this.sessionStorageService = sessionStorageService;
