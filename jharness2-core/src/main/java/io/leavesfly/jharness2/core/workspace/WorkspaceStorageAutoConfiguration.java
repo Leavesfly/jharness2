@@ -1,5 +1,6 @@
 package io.leavesfly.jharness2.core.workspace;
 
+import io.leavesfly.jharness2.core.UserEngineRegistry;
 import io.leavesfly.jharness2.core.spi.WorkspaceStorage;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -68,10 +69,10 @@ public class WorkspaceStorageAutoConfiguration {
     static class OssSyncScheduler {
 
         private final WorkspaceStorage workspaceStorage;
-        private final io.leavesfly.jharness2.core.UserEngineRegistry engineRegistry;
+        private final UserEngineRegistry engineRegistry;
 
         OssSyncScheduler(WorkspaceStorage workspaceStorage,
-                         io.leavesfly.jharness2.core.UserEngineRegistry engineRegistry) {
+                         UserEngineRegistry engineRegistry) {
             this.workspaceStorage = workspaceStorage;
             this.engineRegistry = engineRegistry;
         }
