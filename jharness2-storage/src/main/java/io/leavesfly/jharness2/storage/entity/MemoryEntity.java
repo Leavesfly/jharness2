@@ -1,51 +1,23 @@
 package io.leavesfly.jharness2.storage.entity;
 
-import jakarta.persistence.*;
+import org.springframework.data.annotation.Id;
+import org.springframework.data.relational.core.mapping.Table;
+
 import java.time.Instant;
 
-@Entity
-@Table(name = "user_memories", indexes = {
-        @Index(name = "idx_memory_user_project", columnList = "userId, project")
-})
+@Table("user_memories")
 public class MemoryEntity {
 
     @Id
-    @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    @Column(nullable = false, length = 64)
     private String userId;
-
-    @Column(nullable = false, length = 128)
     private String project;
-
-    @Column(nullable = false, length = 256)
     private String title;
-
-    @Lob
-    @Column(columnDefinition = "TEXT")
     private String content;
-
-    @Column(length = 64)
     private String category;
-
-    @Column(nullable = false)
     private Instant createdAt;
-
-    @Column(nullable = false)
     private Instant updatedAt;
-
-    @PrePersist
-    public void prePersist() {
-        Instant now = Instant.now();
-        if (createdAt == null) createdAt = now;
-        updatedAt = now;
-    }
-
-    @PreUpdate
-    public void preUpdate() {
-        updatedAt = Instant.now();
-    }
 
     // getters and setters
     public Long getId() { return id; }

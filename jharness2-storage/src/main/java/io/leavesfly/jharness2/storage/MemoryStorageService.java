@@ -3,8 +3,8 @@ package io.leavesfly.jharness2.storage;
 import io.leavesfly.jharness2.storage.entity.MemoryEntity;
 import io.leavesfly.jharness2.storage.repository.MemoryRepository;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 
@@ -17,9 +17,9 @@ public class MemoryStorageService {
         this.memoryRepository = memoryRepository;
     }
 
-    @Transactional
     public void saveMemory(String userId, String project, String title,
                           String content, String category) {
+        Instant now = Instant.now();
         MemoryEntity entity = memoryRepository
                 .findByUserIdAndProjectAndTitle(userId, project, title)
                 .orElseGet(() -> {
@@ -27,11 +27,13 @@ public class MemoryStorageService {
                     newEntity.setUserId(userId);
                     newEntity.setProject(project);
                     newEntity.setTitle(title);
+                    newEntity.setCreatedAt(now);
                     return newEntity;
                 });
 
         entity.setContent(content);
         entity.setCategory(category);
+        entity.setUpdatedAt(now);
         memoryRepository.save(entity);
     }
 
@@ -47,7 +49,6 @@ public class MemoryStorageService {
         return memoryRepository.searchByKeyword(userId, project, keyword);
     }
 
-    @Transactional
     public void deleteMemory(String userId, String project, String title) {
         memoryRepository.deleteByUserIdAndProjectAndTitle(userId, project, title);
     }

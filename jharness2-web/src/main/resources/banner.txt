@@ -1,0 +1,9 @@
+
+     ╦╦ ╦┌─┐┬─┐┌┐┌┌─┐┌─┐┌─┐2
+     ║╠═╣├─┤├┬┘│││├┤ └─┐└─┐2
+    ╚╝╩ ╩┴ ┴┴└─┘└┘└─┘└─┘└─┘
+
+  Multi-User AI Agent Web Service
+  :: Spring Boot ${spring-boot.version} :: Java ${java.version}
+  :: Version @project.version@ ::
+

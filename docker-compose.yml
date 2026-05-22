@@ -1,0 +1,50 @@
+version: '3.8'
+
+services:
+  ollama:
+    image: ollama/ollama:latest
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama-models:/root/.ollama
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:11434/api/tags || exit 1"]
+      interval: 10s
+      timeout: 5s
+      start_period: 10s
+      retries: 3
+
+  ollama-init:
+    image: ollama/ollama:latest
+    depends_on:
+      ollama:
+        condition: service_healthy
+    restart: "no"
+    entrypoint: ["sh", "-c", "ollama pull qwen3.5:4b"]
+    environment:
+      - OLLAMA_HOST=http://ollama:11434
+
+  jharness2:
+    build: .
+    ports:
+      - "8080:8080"
+    environment:
+      - JHARNESS2_ENGINE_DEFAULT_BASE_URL=http://ollama:11434/v1
+      - JHARNESS2_ENGINE_DEFAULT_MODEL=qwen3.5:4b
+      - JHARNESS2_ENGINE_DEFAULT_API_KEY=ollama
+    volumes:
+      - jharness2-data:/app/data
+    depends_on:
+      ollama:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8080/actuator/health"]
+      interval: 30s
+      timeout: 5s
+      start_period: 30s
+
+volumes:
+  jharness2-data:
+  ollama-models:

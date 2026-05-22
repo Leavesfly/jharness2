@@ -8,8 +8,8 @@ import io.leavesfly.jharness2.storage.repository.SessionRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 
@@ -25,14 +25,15 @@ public class SessionStorageService implements SessionPersistenceService {
         this.objectMapper = objectMapper;
     }
 
-    @Transactional
     public void saveSession(String userId, String sessionId, String model,
                            List<?> messages, long inputTokens, long outputTokens) {
+        Instant now = Instant.now();
         SessionEntity entity = sessionRepository.findByUserIdAndSessionId(userId, sessionId)
                 .orElseGet(() -> {
                     SessionEntity newEntity = new SessionEntity();
                     newEntity.setUserId(userId);
                     newEntity.setSessionId(sessionId);
+                    newEntity.setCreatedAt(now);
                     return newEntity;
                 });
 
@@ -40,6 +41,7 @@ public class SessionStorageService implements SessionPersistenceService {
         entity.setMessageCount(messages.size());
         entity.setInputTokens(inputTokens);
         entity.setOutputTokens(outputTokens);
+        entity.setUpdatedAt(now);
 
         try {
             entity.setMessagesJson(objectMapper.writeValueAsString(messages));
@@ -59,7 +61,6 @@ public class SessionStorageService implements SessionPersistenceService {
         return sessionRepository.findByUserIdOrderByUpdatedAtDesc(userId);
     }
 
-    @Transactional
     public void deleteSession(String userId, String sessionId) {
         sessionRepository.deleteByUserIdAndSessionId(userId, sessionId);
     }

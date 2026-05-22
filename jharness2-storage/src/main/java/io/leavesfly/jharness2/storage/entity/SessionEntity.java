@@ -1,61 +1,26 @@
 package io.leavesfly.jharness2.storage.entity;
 
-import jakarta.persistence.*;
+import org.springframework.data.annotation.Id;
+import org.springframework.data.relational.core.mapping.Table;
+
 import java.time.Instant;
 
-@Entity
-@Table(name = "chat_sessions", indexes = {
-        @Index(name = "idx_session_user", columnList = "userId"),
-        @Index(name = "idx_session_user_session", columnList = "userId, sessionId", unique = true)
-})
+@Table("chat_sessions")
 public class SessionEntity {
 
     @Id
-    @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    @Column(nullable = false, length = 64)
     private String userId;
-
-    @Column(nullable = false, length = 64)
     private String sessionId;
-
-    @Column(length = 128)
     private String model;
-
-    @Column(length = 512)
     private String title;
-
-    @Lob
-    @Column(columnDefinition = "LONGTEXT")
     private String messagesJson;
-
-    @Column
     private int messageCount;
-
-    @Column
     private long inputTokens;
-
-    @Column
     private long outputTokens;
-
-    @Column(nullable = false)
     private Instant createdAt;
-
-    @Column(nullable = false)
     private Instant updatedAt;
-
-    @PrePersist
-    public void prePersist() {
-        Instant now = Instant.now();
-        if (createdAt == null) createdAt = now;
-        updatedAt = now;
-    }
-
-    @PreUpdate
-    public void preUpdate() {
-        updatedAt = Instant.now();
-    }
 
     // getters and setters
     public Long getId() { return id; }

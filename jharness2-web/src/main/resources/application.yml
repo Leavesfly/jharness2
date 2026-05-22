@@ -1,9 +1,12 @@
 server:
   port: 8080
+  shutdown: graceful
 
 spring:
   application:
     name: jharness2
+  lifecycle:
+    timeout-per-shutdown-phase: 30s
   datasource:
     url: jdbc:h2:file:./data/jharness2-db
     driver-class-name: org.h2.Driver
@@ -13,14 +16,9 @@ spring:
     console:
       enabled: true
       path: /h2-console
-  jpa:
-    hibernate:
-      ddl-auto: update
-    show-sql: false
-    open-in-view: false
-    properties:
-      hibernate:
-        format_sql: true
+  sql:
+    init:
+      mode: always
   jackson:
     serialization:
       write-dates-as-timestamps: false
