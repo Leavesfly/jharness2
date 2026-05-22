@@ -11,6 +11,7 @@ import io.leavesfly.jharness2.engine.permission.PermissionMode;
 import io.leavesfly.jharness2.engine.plugin.PluginRegistry;
 import io.leavesfly.jharness2.engine.skill.SkillRegistry;
 import io.leavesfly.jharness2.engine.task.BackgroundTaskManager;
+import io.leavesfly.jharness2.engine.tool.BaseTool;
 import io.leavesfly.jharness2.engine.tool.ToolRegistry;
 import io.leavesfly.jharness2.engine.tool.builtin.file.FileReadTool;
 import io.leavesfly.jharness2.engine.tool.builtin.file.FileWriteTool;
@@ -26,12 +27,24 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 
 import java.nio.file.Path;
+import java.util.List;
 import java.util.Map;
 
 @Component
 public class DefaultEngineFactory implements EngineFactory {
 
     private static final Logger logger = LoggerFactory.getLogger(DefaultEngineFactory.class);
+
+    /**
+     * 内置工具单例集合 — 这些工具是无状态的，可安全跨引擎共享。
+     */
+    private static final List<BaseTool<?>> BUILTIN_TOOLS = List.of(
+            new FileReadTool(),
+            new FileWriteTool(),
+            new GrepTool(),
+            new GlobTool(),
+            new BashTool()
+    );
 
     private final EngineConfig engineConfig;
     private final WorkspaceInitializer workspaceInitializer;
@@ -64,13 +77,9 @@ public class DefaultEngineFactory implements EngineFactory {
                 engineConfig.getReadTimeoutSeconds(),
                 engineConfig.getWriteTimeoutSeconds());
 
-        // 2. 工具注册表 - 注册内置工具
+        // 2. 工具注册表 - 注册内置工具（共享单例，无状态可安全复用）
         ToolRegistry toolRegistry = new ToolRegistry();
-        toolRegistry.register(new FileReadTool());
-        toolRegistry.register(new FileWriteTool());
-        toolRegistry.register(new GrepTool());
-        toolRegistry.register(new GlobTool());
-        toolRegistry.register(new BashTool());
+        BUILTIN_TOOLS.forEach(toolRegistry::register);
 
         // 3. 技能系统 - 三层加载（内置 + 用户 + 项目），并将 SkillTool 注册到工具表
         SkillRegistry skillRegistry = SkillLoader.loadAll(workspace);
@@ -112,11 +121,10 @@ public class DefaultEngineFactory implements EngineFactory {
         // 9. Skill 注入
         engine.setSkillRegistry(skillRegistry);
 
-        // 10. MCP 管理器 + 插件声明的 MCP 服务器 + 动态工具注册
+        // 10. MCP 管理器 + 插件声明的 MCP 服务器 + 异步连接与工具注册
         McpManager mcpManager = new McpManager();
         pluginRegistry.injectMcpServers(mcpManager);
-        mcpManager.connectAll();
-        mcpManager.registerToolsTo(toolRegistry);
+        mcpManager.connectAndRegisterAsync(toolRegistry);
         engine.setMcpManager(mcpManager);
 
         // 11. Hook 系统 + 插件声明的 Hooks

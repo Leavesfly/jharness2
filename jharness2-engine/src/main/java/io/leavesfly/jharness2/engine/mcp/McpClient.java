@@ -27,6 +27,8 @@ public class McpClient implements AutoCloseable {
     private final AtomicInteger requestId = new AtomicInteger(0);
     private final Map<Integer, CompletableFuture<JsonNode>> pendingRequests = new ConcurrentHashMap<>();
     private volatile boolean running;
+    private volatile boolean connected;
+    private final Object connectLock = new Object();
     private Thread readerThread;
 
     public McpClient(String serverName, List<String> command, Map<String, String> env) {
@@ -36,26 +38,50 @@ public class McpClient implements AutoCloseable {
     }
 
     public void connect() throws IOException {
-        ProcessBuilder pb = new ProcessBuilder(command);
-        pb.environment().putAll(env);
-        pb.redirectErrorStream(false);
-        process = pb.start();
-        writer = new BufferedWriter(new OutputStreamWriter(process.getOutputStream()));
-        reader = new BufferedReader(new InputStreamReader(process.getInputStream()));
-        running = true;
+        if (connected && running) {
+            return;
+        }
+        synchronized (connectLock) {
+            if (connected && running) {
+                return;
+            }
+            ProcessBuilder pb = new ProcessBuilder(command);
+            pb.environment().putAll(env);
+            pb.redirectErrorStream(false);
+            process = pb.start();
+            writer = new BufferedWriter(new OutputStreamWriter(process.getOutputStream()));
+            reader = new BufferedReader(new InputStreamReader(process.getInputStream()));
+            running = true;
 
-        readerThread = new Thread(this::readLoop, "mcp-reader-" + serverName);
-        readerThread.setDaemon(true);
-        readerThread.start();
+            readerThread = new Thread(this::readLoop, "mcp-reader-" + serverName);
+            readerThread.setDaemon(true);
+            readerThread.start();
 
-        // Initialize
-        JsonNode initResult = sendRequest("initialize", MAPPER.createObjectNode()
-                .put("protocolVersion", "2024-11-05")
-                .set("capabilities", MAPPER.createObjectNode()));
-        logger.info("MCP server '{}' initialized: {}", serverName,
-                initResult != null ? initResult.path("serverInfo").path("name").asText("unknown") : "unknown");
+            // Initialize
+            JsonNode initResult = sendRequest("initialize", MAPPER.createObjectNode()
+                    .put("protocolVersion", "2024-11-05")
+                    .set("capabilities", MAPPER.createObjectNode()));
+            logger.info("MCP server '{}' initialized: {}", serverName,
+                    initResult != null ? initResult.path("serverInfo").path("name").asText("unknown") : "unknown");
 
-        sendNotification("notifications/initialized", MAPPER.createObjectNode());
+            sendNotification("notifications/initialized", MAPPER.createObjectNode());
+            connected = true;
+        }
+    }
+
+    /**
+     * 确保连接已建立，懒初始化模式。
+     * 如果连接失败则抛出 RuntimeException。
+     */
+    public void ensureConnected() {
+        if (connected && running) {
+            return;
+        }
+        try {
+            connect();
+        } catch (IOException e) {
+            throw new RuntimeException("Failed to lazily connect MCP server '" + serverName + "': " + e.getMessage(), e);
+        }
     }
 
     public List<McpTool> listTools() {

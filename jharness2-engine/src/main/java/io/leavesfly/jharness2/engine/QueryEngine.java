@@ -21,6 +21,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -46,7 +47,7 @@ public class QueryEngine {
     private final CostTracker costTracker = new CostTracker();
     private final List<ConversationMessage> messages = Collections.synchronizedList(new ArrayList<>());
     private final AtomicBoolean cancelled = new AtomicBoolean(false);
-    private volatile java.nio.file.Path workingDirectory;
+    private volatile Path workingDirectory;
 
     // 子系统（可选注入）
     private volatile PermissionChecker permissionChecker;
@@ -157,7 +158,7 @@ public class QueryEngine {
                 }
             }
 
-            java.nio.file.Path cwd = workingDirectory != null ? workingDirectory : java.nio.file.Path.of(".");
+            Path cwd = workingDirectory != null ? workingDirectory : Path.of(".");
             ToolExecutionContext context = new ToolExecutionContext(cwd, permissionChecker);
             return tool.execute(input, context).join();
         } catch (Exception e) {
@@ -227,17 +228,49 @@ public class QueryEngine {
 
     // --- Getter / Setter ---
 
-    public CostTracker getCostTracker() { return costTracker; }
-    public LlmClient getLlmClient() { return llmClient; }
-    public ToolRegistry getToolRegistry() { return toolRegistry; }
-    public PermissionChecker getPermissionChecker() { return permissionChecker; }
-    public AgentOrchestrator getAgentOrchestrator() { return agentOrchestrator; }
-    public SkillRegistry getSkillRegistry() { return skillRegistry; }
-    public McpManager getMcpManager() { return mcpManager; }
-    public HookExecutor getHookExecutor() { return hookExecutor; }
-    public BackgroundTaskManager getBackgroundTaskManager() { return backgroundTaskManager; }
-    public HeartbeatService getHeartbeatService() { return heartbeatService; }
-    public CronScheduler getCronScheduler() { return cronScheduler; }
+    public CostTracker getCostTracker() {
+        return costTracker;
+    }
+
+    public LlmClient getLlmClient() {
+        return llmClient;
+    }
+
+    public ToolRegistry getToolRegistry() {
+        return toolRegistry;
+    }
+
+    public PermissionChecker getPermissionChecker() {
+        return permissionChecker;
+    }
+
+    public AgentOrchestrator getAgentOrchestrator() {
+        return agentOrchestrator;
+    }
+
+    public SkillRegistry getSkillRegistry() {
+        return skillRegistry;
+    }
+
+    public McpManager getMcpManager() {
+        return mcpManager;
+    }
+
+    public HookExecutor getHookExecutor() {
+        return hookExecutor;
+    }
+
+    public BackgroundTaskManager getBackgroundTaskManager() {
+        return backgroundTaskManager;
+    }
+
+    public HeartbeatService getHeartbeatService() {
+        return heartbeatService;
+    }
+
+    public CronScheduler getCronScheduler() {
+        return cronScheduler;
+    }
 
     public void setPermissionChecker(PermissionChecker permissionChecker) {
         this.permissionChecker = permissionChecker;

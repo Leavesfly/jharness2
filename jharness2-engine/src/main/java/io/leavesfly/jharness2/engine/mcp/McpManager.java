@@ -23,6 +23,9 @@ public class McpManager implements AutoCloseable {
         clients.put(name, client);
     }
 
+    /**
+     * 立即连接所有 MCP 服务器（阻塞式，适用于预热场景）。
+     */
     public void connectAll() {
         for (Map.Entry<String, McpClient> entry : clients.entrySet()) {
             try {
@@ -35,7 +38,16 @@ public class McpManager implements AutoCloseable {
     }
 
     /**
+     * 懒连接模式：仅记录服务器，不立即建立连接。
+     * 连接将在首次工具调用时按需建立。
+     */
+    public void prepareLazyConnect() {
+        logger.info("MCP servers registered for lazy connect: {}", clients.keySet());
+    }
+
+    /**
      * 将所有已连接的 MCP 服务器的工具注册到 ToolRegistry（使用 BaseTool 适配器）。
+     * 要求服务器已连接。
      */
     public int registerToolsTo(ToolRegistry registry) {
         int count = 0;
@@ -50,6 +62,32 @@ public class McpManager implements AutoCloseable {
         }
         logger.info("Registered {} MCP tools from {} servers", count, clients.size());
         return count;
+    }
+
+    /**
+     * 异步连接所有 MCP 服务器，连接完成后自动将工具注册到 ToolRegistry。
+     * 引擎创建时不阻塞，工具在后台就绪后即可使用。
+     */
+    public CompletableFuture<Integer> connectAndRegisterAsync(ToolRegistry registry) {
+        return CompletableFuture.supplyAsync(() -> {
+            int totalTools = 0;
+            for (Map.Entry<String, McpClient> entry : clients.entrySet()) {
+                try {
+                    entry.getValue().connect();
+                    logger.info("Async connected to MCP server: {}", entry.getKey());
+                    List<McpTool> tools = entry.getValue().listTools();
+                    for (McpTool tool : tools) {
+                        String prefixedName = "mcp_" + entry.getKey() + "_" + tool.getName();
+                        registry.register(new McpToolAdapter(prefixedName, tool, entry.getValue()));
+                        totalTools++;
+                    }
+                } catch (Exception e) {
+                    logger.error("Async connect MCP server '{}' failed: {}", entry.getKey(), e.getMessage());
+                }
+            }
+            logger.info("Async registered {} MCP tools from {} servers", totalTools, clients.size());
+            return totalTools;
+        });
     }
 
     public McpClient getClient(String name) {
