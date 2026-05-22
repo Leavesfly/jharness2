@@ -87,6 +87,24 @@
         .empty-state { display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%; color: var(--text-muted); }
         .empty-state h3 { font-size: 20px; margin-bottom: 8px; color: var(--primary); }
         .empty-state p { font-size: 14px; }
+
+        /* Onboarding */
+        #onboarding-view { display: none; align-items: center; justify-content: center; height: 100vh; }
+        .onboarding-card { background: var(--surface); padding: 48px; border-radius: var(--radius); width: 520px; box-shadow: 0 8px 32px rgba(0,0,0,.4); }
+        .onboarding-card h2 { text-align: center; margin-bottom: 8px; color: var(--primary); font-size: 22px; }
+        .onboarding-card .subtitle { text-align: center; color: var(--text-muted); font-size: 14px; margin-bottom: 32px; }
+        .onboarding-card .field { margin-bottom: 20px; }
+        .onboarding-card .field label { display: block; margin-bottom: 6px; font-size: 13px; color: var(--text-muted); }
+        .onboarding-card .field .hint { font-size: 12px; color: var(--text-muted); margin-top: 4px; }
+        .onboarding-card .field input { width: 100%; }
+        .onboarding-card .btn-primary { width: 100%; padding: 14px; background: var(--primary-dark); color: #fff; font-weight: 600; font-size: 15px; }
+        .onboarding-card .error-msg { color: var(--danger); font-size: 13px; margin-bottom: 12px; text-align: center; display: none; }
+        .onboarding-card .steps { display: flex; justify-content: center; gap: 8px; margin-bottom: 24px; }
+        .onboarding-card .steps .step { width: 10px; height: 10px; border-radius: 50%; background: var(--border); transition: background .3s; }
+        .onboarding-card .steps .step.active { background: var(--primary); }
+        .onboarding-card .welcome-icon { text-align: center; font-size: 48px; margin-bottom: 16px; }
+        .onboarding-card .skip-link { display: block; text-align: center; margin-top: 16px; font-size: 13px; color: var(--text-muted); cursor: pointer; }
+        .onboarding-card .skip-link:hover { color: var(--primary); }
     </style>
 </head>
 <body>
@@ -109,6 +127,58 @@
             <span id="auth-toggle-text">还没有账号？</span>
             <a id="auth-toggle-link" onclick="toggleAuthMode()">去注册</a>
         </div>
+    </div>
+</div>
+
+<!-- Onboarding View -->
+<div id="onboarding-view">
+    <div class="onboarding-card">
+        <div class="welcome-icon">🚀</div>
+        <h2>欢迎使用 JHarness2</h2>
+        <p class="subtitle">完成以下配置，开启你的 AI Agent 之旅</p>
+        <div class="steps">
+            <div class="step active" id="step-1"></div>
+            <div class="step" id="step-2"></div>
+            <div class="step" id="step-3"></div>
+        </div>
+        <div class="error-msg" id="onboarding-error"></div>
+
+        <!-- Step 1: Welcome -->
+        <div id="onboarding-step-1">
+            <div class="field">
+                <label>显示名称</label>
+                <input type="text" id="ob-display-name" placeholder="你希望怎么称呼你？">
+                <div class="hint">可选，留空则使用用户名</div>
+            </div>
+            <button class="btn-primary" onclick="onboardingNext(2)">下一步 →</button>
+        </div>
+
+        <!-- Step 2: API Config -->
+        <div id="onboarding-step-2" style="display:none;">
+            <div class="field">
+                <label>API Key *</label>
+                <input type="text" id="ob-api-key" placeholder="输入你的 LLM API Key">
+                <div class="hint">用于连接 AI 模型服务（如 OpenAI、Ollama 等）</div>
+            </div>
+            <div class="field">
+                <label>LLM 服务地址</label>
+                <input type="text" id="ob-base-url" placeholder="http://localhost:11434/v1">
+                <div class="hint">可选，留空使用系统默认地址</div>
+            </div>
+            <button class="btn-primary" onclick="onboardingNext(3)">下一步 →</button>
+        </div>
+
+        <!-- Step 3: Model Selection -->
+        <div id="onboarding-step-3" style="display:none;">
+            <div class="field">
+                <label>偏好模型</label>
+                <input type="text" id="ob-model" placeholder="qwen3.5:4b">
+                <div class="hint">可选，留空使用系统默认模型</div>
+            </div>
+            <button class="btn-primary" onclick="submitOnboarding()">完成配置 ✓</button>
+        </div>
+
+        <span class="skip-link" onclick="skipOnboarding()">跳过，稍后配置</span>
     </div>
 </div>
 
@@ -154,6 +224,7 @@
 // === State ===
 let token = localStorage.getItem('jh2_token');
 let username = localStorage.getItem('jh2_user');
+let onboardingCompleted = localStorage.getItem('jh2_onboarding') === 'true';
 let currentSessionId = null;
 let isStreaming = false;
 let isRegisterMode = false;
@@ -162,7 +233,11 @@ let eventSource = null;
 // === Init ===
 document.addEventListener('DOMContentLoaded', () => {
     if (token && username) {
-        showMainView();
+        if (!onboardingCompleted) {
+            showOnboardingView();
+        } else {
+            showMainView();
+        }
     }
     setupInputAutoResize();
 });
@@ -196,9 +271,15 @@ async function doAuth() {
         if (!res.ok) { showAuthError(data.error || '操作失败'); return; }
         token = data.token;
         username = data.username;
+        onboardingCompleted = data.onboardingCompleted;
         localStorage.setItem('jh2_token', token);
         localStorage.setItem('jh2_user', username);
-        showMainView();
+        localStorage.setItem('jh2_onboarding', String(onboardingCompleted));
+        if (!onboardingCompleted) {
+            showOnboardingView();
+        } else {
+            showMainView();
+        }
     } catch (e) { showAuthError('网络错误: ' + e.message); }
 }
 
@@ -206,16 +287,110 @@ function showAuthError(msg) { const el = document.getElementById('auth-error'); 
 function hideAuthError() { document.getElementById('auth-error').style.display = 'none'; }
 
 function logout() {
-    token = null; username = null; currentSessionId = null;
+    token = null; username = null; currentSessionId = null; onboardingCompleted = false;
     localStorage.removeItem('jh2_token');
     localStorage.removeItem('jh2_user');
+    localStorage.removeItem('jh2_onboarding');
     document.getElementById('auth-view').style.display = 'flex';
     document.getElementById('main-view').style.display = 'none';
+    document.getElementById('onboarding-view').style.display = 'none';
+}
+
+// === Onboarding ===
+function showOnboardingView() {
+    document.getElementById('auth-view').style.display = 'none';
+    document.getElementById('main-view').style.display = 'none';
+    document.getElementById('onboarding-view').style.display = 'flex';
+}
+
+function onboardingNext(step) {
+    // Validate step 2 (API Key required)
+    if (step === 3) {
+        const apiKey = document.getElementById('ob-api-key').value.trim();
+        if (!apiKey) { showOnboardingError('请输入 API Key'); return; }
+    }
+    hideOnboardingError();
+    document.getElementById('onboarding-step-1').style.display = 'none';
+    document.getElementById('onboarding-step-2').style.display = 'none';
+    document.getElementById('onboarding-step-3').style.display = 'none';
+    document.getElementById(`onboarding-step-${step}`).style.display = 'block';
+    document.querySelectorAll('.onboarding-card .steps .step').forEach((el, i) => {
+        el.classList.toggle('active', i < step);
+    });
+}
+
+async function submitOnboarding() {
+    const apiKey = document.getElementById('ob-api-key').value.trim();
+    if (!apiKey) { showOnboardingError('请返回上一步填写 API Key'); return; }
+
+    const payload = {
+        displayName: document.getElementById('ob-display-name').value.trim() || null,
+        apiKey: apiKey,
+        baseUrl: document.getElementById('ob-base-url').value.trim() || null,
+        preferredModel: document.getElementById('ob-model').value.trim() || null
+    };
+
+    try {
+        const res = await apiFetch('/api/auth/onboarding', {
+            method: 'POST',
+            body: JSON.stringify(payload)
+        });
+        const data = await res.json();
+        if (!res.ok) { showOnboardingError(data.error || '配置失败'); return; }
+        onboardingCompleted = true;
+        localStorage.setItem('jh2_onboarding', 'true');
+        showMainView();
+    } catch (e) { showOnboardingError('网络错误: ' + e.message); }
+}
+
+function skipOnboarding() {
+    // Skip with default config - still need API key for minimal setup
+    const apiKey = document.getElementById('ob-api-key').value.trim();
+    if (!apiKey) {
+        // Use system default (ollama)
+        submitOnboardingWithDefaults();
+        return;
+    }
+    submitOnboarding();
+}
+
+async function submitOnboardingWithDefaults() {
+    const payload = {
+        apiKey: 'ollama',
+        baseUrl: null,
+        preferredModel: null,
+        displayName: null
+    };
+    try {
+        const res = await apiFetch('/api/auth/onboarding', {
+            method: 'POST',
+            body: JSON.stringify(payload)
+        });
+        if (!res.ok) {
+            const data = await res.json();
+            showOnboardingError(data.error || '配置失败');
+            return;
+        }
+        onboardingCompleted = true;
+        localStorage.setItem('jh2_onboarding', 'true');
+        showMainView();
+    } catch (e) { showOnboardingError('网络错误: ' + e.message); }
+}
+
+function showOnboardingError(msg) {
+    const el = document.getElementById('onboarding-error');
+    el.textContent = msg;
+    el.style.display = 'block';
+}
+
+function hideOnboardingError() {
+    document.getElementById('onboarding-error').style.display = 'none';
 }
 
 // === Main View ===
 function showMainView() {
     document.getElementById('auth-view').style.display = 'none';
+    document.getElementById('onboarding-view').style.display = 'none';
     document.getElementById('main-view').style.display = 'block';
     document.getElementById('stat-user').textContent = username;
     loadSessions();

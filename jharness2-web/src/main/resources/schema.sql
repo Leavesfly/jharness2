@@ -6,6 +6,7 @@ CREATE TABLE IF NOT EXISTS users (
     email VARCHAR(256),
     role VARCHAR(32),
     enabled BOOLEAN NOT NULL DEFAULT TRUE,
+    onboarding_completed BOOLEAN NOT NULL DEFAULT FALSE,
     api_key VARCHAR(512),
     base_url VARCHAR(256),
     preferred_model VARCHAR(64),

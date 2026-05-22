@@ -36,6 +36,7 @@ public class AdminUserInitializer implements ApplicationRunner {
         admin.setDisplayName("Administrator");
         admin.setRole("ADMIN");
         admin.setEnabled(true);
+        admin.setOnboardingCompleted(true);
         admin.setCreatedAt(now);
         admin.setUpdatedAt(now);
         userRepository.save(admin);

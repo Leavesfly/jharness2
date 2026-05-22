@@ -17,6 +17,7 @@ public class UserEntity {
     private String email;
     private String role;
     private boolean enabled = true;
+    private boolean onboardingCompleted = false;
     private String apiKey;
     private String baseUrl;
     private String preferredModel;
@@ -38,6 +39,8 @@ public class UserEntity {
     public void setRole(String role) { this.role = role; }
     public boolean isEnabled() { return enabled; }
     public void setEnabled(boolean enabled) { this.enabled = enabled; }
+    public boolean isOnboardingCompleted() { return onboardingCompleted; }
+    public void setOnboardingCompleted(boolean onboardingCompleted) { this.onboardingCompleted = onboardingCompleted; }
     public String getApiKey() { return apiKey; }
     public void setApiKey(String apiKey) { this.apiKey = apiKey; }
     public String getBaseUrl() { return baseUrl; }
