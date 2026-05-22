@@ -45,9 +45,25 @@ jharness2:
       - "reboot*"
       - "mkfs*"
       - "dd if=*"
+    distributed:
+      enabled: false
+      node-id: ""
+      state-sync-interval-seconds: 10
+      ownership-lease-seconds: 60
+      state-ttl-minutes: 35
 
   workspace:
     root: ./data/workspaces
+    storage-type: local  # local | oss
+    oss:
+      endpoint: ""
+      access-key-id: ""
+      access-key-secret: ""
+      bucket-name: ""
+      key-prefix: workspaces/
+      local-cache-dir: ./data/workspace-cache
+      sync-interval-seconds: 30
+      delete-local-cache-on-release: false
 
   security:
     jwt:

@@ -1,97 +1,23 @@
 package io.leavesfly.jharness2.core;
 
-import com.github.benmanes.caffeine.cache.Cache;
-import com.github.benmanes.caffeine.cache.Caffeine;
-import com.github.benmanes.caffeine.cache.RemovalCause;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-import org.springframework.stereotype.Service;
+/**
+ * 引擎注册表接口 —— 管理引擎实例的创建、获取、驱逐和生命周期。
+ * <p>
+ * 两种实现：
+ * - {@code LocalEngineRegistry}：单机 Caffeine 缓存（默认）
+ * - {@code DistributedEngineRegistry}：Redis 状态外置 + 本地缓存（需开启分布式配置）
+ */
+public interface UserEngineRegistry {
 
-import jakarta.annotation.PostConstruct;
-import jakarta.annotation.PreDestroy;
-import java.time.Duration;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ConcurrentMap;
-import java.util.concurrent.atomic.AtomicInteger;
+    EngineInstance getOrCreate(UserContext context);
 
-@Service
-public class UserEngineRegistry {
+    EngineInstance get(String userId, String sessionId);
 
-    private static final Logger logger = LoggerFactory.getLogger(UserEngineRegistry.class);
+    void evict(String userId, String sessionId);
 
-    private final EngineFactory engineFactory;
-    private final EngineConfig engineConfig;
+    long activeEngineCount();
 
-    private Cache<String, EngineInstance> engineCache;
-    private final ConcurrentMap<String, AtomicInteger> userEngineCount = new ConcurrentHashMap<>();
+    int userEngineCount(String userId);
 
-    public UserEngineRegistry(EngineFactory engineFactory, EngineConfig engineConfig) {
-        this.engineFactory = engineFactory;
-        this.engineConfig = engineConfig;
-    }
-
-    @PostConstruct
-    public void init() {
-        this.engineCache = Caffeine.newBuilder()
-                .expireAfterAccess(Duration.ofMinutes(engineConfig.getEngineIdleTimeoutMinutes()))
-                .maximumSize(engineConfig.getMaxTotalEngines())
-                .removalListener((String key, EngineInstance instance, RemovalCause cause) -> {
-                    if (instance != null) {
-                        logger.info("Evicting engine: key={}, cause={}", key, cause);
-                        instance.close();
-                        String userId = instance.getUserContext().getUserId();
-                        userEngineCount.computeIfPresent(userId, (k, v) -> {
-                            v.decrementAndGet();
-                            return v;
-                        });
-                    }
-                })
-                .build();
-    }
-
-    public EngineInstance getOrCreate(UserContext context) {
-        String cacheKey = context.getCacheKey();
-        EngineInstance existing = engineCache.getIfPresent(cacheKey);
-        if (existing != null) {
-            return existing;
-        }
-
-        // 检查用户 engine 数量限制
-        AtomicInteger count = userEngineCount.computeIfAbsent(
-                context.getUserId(), k -> new AtomicInteger(0));
-        if (count.get() >= engineConfig.getMaxEnginesPerUser()) {
-            throw new EngineLimitExceededException(
-                    "User " + context.getUserId() + " has reached max engine limit: "
-                            + engineConfig.getMaxEnginesPerUser());
-        }
-
-        EngineInstance instance = engineFactory.create(context);
-        engineCache.put(cacheKey, instance);
-        count.incrementAndGet();
-        return instance;
-    }
-
-    public EngineInstance get(String userId, String sessionId) {
-        return engineCache.getIfPresent(userId + ":" + sessionId);
-    }
-
-    public void evict(String userId, String sessionId) {
-        engineCache.invalidate(userId + ":" + sessionId);
-    }
-
-    public long activeEngineCount() {
-        return engineCache.estimatedSize();
-    }
-
-    public int userEngineCount(String userId) {
-        AtomicInteger count = userEngineCount.get(userId);
-        return count != null ? count.get() : 0;
-    }
-
-    @PreDestroy
-    public void shutdown() {
-        logger.info("Shutting down UserEngineRegistry, closing {} engines", engineCache.estimatedSize());
-        engineCache.asMap().values().forEach(EngineInstance::close);
-        engineCache.invalidateAll();
-    }
+    void shutdown();
 }

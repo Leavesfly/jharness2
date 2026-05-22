@@ -1,5 +1,6 @@
 package io.leavesfly.jharness2.core;
 
+import io.leavesfly.jharness2.engine.ConversationMessage;
 import io.leavesfly.jharness2.engine.OpenAiClient;
 import io.leavesfly.jharness2.engine.QueryEngine;
 import io.leavesfly.jharness2.engine.agent.AgentOrchestrator;
@@ -56,6 +57,18 @@ public class DefaultEngineFactory implements EngineFactory {
         this.engineConfig = engineConfig;
         this.workspaceInitializer = workspaceInitializer;
         this.sessionStorageService = sessionStorageService;
+    }
+
+    @Override
+    public EngineInstance restore(UserContext context, List<ConversationMessage> messages,
+                                  long inputTokens, long outputTokens) {
+        EngineInstance instance = create(context);
+        QueryEngine engine = instance.getEngine();
+        engine.loadMessages(messages);
+        engine.getCostTracker().restore(inputTokens, outputTokens);
+        logger.info("Restored engine for user={}, session={}, messages={}, tokens={}+{}",
+                context.getUserId(), context.getSessionId(), messages.size(), inputTokens, outputTokens);
+        return instance;
     }
 
     @Override

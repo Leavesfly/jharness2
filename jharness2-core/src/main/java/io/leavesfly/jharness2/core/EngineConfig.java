@@ -25,6 +25,28 @@ public class EngineConfig {
             "rm -rf /*", "sudo *", "shutdown*", "reboot*", "mkfs*", "dd if=*"
     ));
 
+    // 分布式引擎状态外置配置
+    private Distributed distributed = new Distributed();
+
+    public static class Distributed {
+        private boolean enabled = false;
+        private String nodeId = "";
+        private int stateSyncIntervalSeconds = 10;
+        private int ownershipLeaseSeconds = 60;
+        private int stateTtlMinutes = 35;
+
+        public boolean isEnabled() { return enabled; }
+        public void setEnabled(boolean enabled) { this.enabled = enabled; }
+        public String getNodeId() { return nodeId; }
+        public void setNodeId(String nodeId) { this.nodeId = nodeId; }
+        public int getStateSyncIntervalSeconds() { return stateSyncIntervalSeconds; }
+        public void setStateSyncIntervalSeconds(int stateSyncIntervalSeconds) { this.stateSyncIntervalSeconds = stateSyncIntervalSeconds; }
+        public int getOwnershipLeaseSeconds() { return ownershipLeaseSeconds; }
+        public void setOwnershipLeaseSeconds(int ownershipLeaseSeconds) { this.ownershipLeaseSeconds = ownershipLeaseSeconds; }
+        public int getStateTtlMinutes() { return stateTtlMinutes; }
+        public void setStateTtlMinutes(int stateTtlMinutes) { this.stateTtlMinutes = stateTtlMinutes; }
+    }
+
     // all getters and setters
     public String getDefaultModel() { return defaultModel; }
     public void setDefaultModel(String defaultModel) { this.defaultModel = defaultModel; }
@@ -50,4 +72,6 @@ public class EngineConfig {
     public void setEngineIdleTimeoutMinutes(int engineIdleTimeoutMinutes) { this.engineIdleTimeoutMinutes = engineIdleTimeoutMinutes; }
     public List<String> getDeniedCommandPatterns() { return deniedCommandPatterns; }
     public void setDeniedCommandPatterns(List<String> deniedCommandPatterns) { this.deniedCommandPatterns = deniedCommandPatterns; }
+    public Distributed getDistributed() { return distributed; }
+    public void setDistributed(Distributed distributed) { this.distributed = distributed; }
 }

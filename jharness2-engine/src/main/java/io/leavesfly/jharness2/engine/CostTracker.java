@@ -28,4 +28,9 @@ public class CostTracker {
         inputTokens.set(0);
         outputTokens.set(0);
     }
+
+    public void restore(long inputTokens, long outputTokens) {
+        this.inputTokens.set(inputTokens);
+        this.outputTokens.set(outputTokens);
+    }
 }

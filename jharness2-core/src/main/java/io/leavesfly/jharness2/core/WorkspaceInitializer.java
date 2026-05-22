@@ -1,63 +1,57 @@
 package io.leavesfly.jharness2.core;
 
+import io.leavesfly.jharness2.core.spi.WorkspaceStorage;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
-import java.io.IOException;
-import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.Paths;
 
 /**
- * 自动创建用户工作空间目录。
- * 在 Engine 创建前确保用户的隔离 workspace 存在。
+ * 用户工作空间初始化器。
+ * 委托给 {@link WorkspaceStorage} SPI 实现，支持本地 / OSS 等多种后端。
  */
 @Component
 public class WorkspaceInitializer {
 
     private static final Logger logger = LoggerFactory.getLogger(WorkspaceInitializer.class);
 
-    private final Path workspaceRoot;
+    private final WorkspaceStorage workspaceStorage;
 
-    public WorkspaceInitializer(
-            @Value("${jharness2.workspace.root:./data/workspaces}") String workspaceRoot) {
-        this.workspaceRoot = Paths.get(workspaceRoot);
-        ensureRootExists();
-    }
-
-    private void ensureRootExists() {
-        try {
-            Files.createDirectories(workspaceRoot);
-            logger.info("Workspace root ensured: {}", workspaceRoot.toAbsolutePath());
-        } catch (IOException e) {
-            logger.error("Failed to create workspace root: {}", workspaceRoot, e);
-        }
+    public WorkspaceInitializer(WorkspaceStorage workspaceStorage) {
+        this.workspaceStorage = workspaceStorage;
+        logger.info("WorkspaceInitializer using storage: {}", workspaceStorage.getClass().getSimpleName());
     }
 
     /**
-     * 确保用户工作空间存在，返回其路径。
+     * 确保用户工作空间可用，返回其本地可操作路径。
      */
     public Path ensureUserWorkspace(String userId) {
-        Path userDir = workspaceRoot.resolve(sanitize(userId));
-        if (!Files.exists(userDir)) {
-            try {
-                Files.createDirectories(userDir);
-                logger.info("Created workspace for user={}: {}", userId, userDir);
-            } catch (IOException e) {
-                logger.error("Failed to create workspace for user={}", userId, e);
-                throw new RuntimeException("Cannot create workspace for user: " + userId, e);
-            }
-        }
-        return userDir;
+        return workspaceStorage.ensureUserWorkspace(userId);
+    }
+
+    /**
+     * 将用户工作空间变更同步到远端（本地模式为 no-op）。
+     */
+    public void syncToRemote(String userId) {
+        workspaceStorage.syncToRemote(userId);
+    }
+
+    /**
+     * 从远端拉取最新内容到本地（本地模式为 no-op）。
+     */
+    public void syncFromRemote(String userId) {
+        workspaceStorage.syncFromRemote(userId);
+    }
+
+    /**
+     * 释放用户工作空间本地缓存。
+     */
+    public void release(String userId, boolean deleteLocalCache) {
+        workspaceStorage.release(userId, deleteLocalCache);
     }
 
     public Path getWorkspaceRoot() {
-        return workspaceRoot;
-    }
-
-    private String sanitize(String input) {
-        return input.replaceAll("[^a-zA-Z0-9._-]", "_");
+        return workspaceStorage.getWorkspaceRoot();
     }
 }

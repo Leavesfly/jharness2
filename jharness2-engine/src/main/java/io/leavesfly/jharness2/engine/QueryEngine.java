@@ -212,7 +212,7 @@ public class QueryEngine {
         if (backgroundTaskManager != null) backgroundTaskManager.shutdown();
         if (heartbeatService != null) heartbeatService.stop();
         if (cronScheduler != null) cronScheduler.shutdown();
-        llmClient.close();
+        if (llmClient != null) llmClient.close();
     }
 
     // --- 消息管理 ---
