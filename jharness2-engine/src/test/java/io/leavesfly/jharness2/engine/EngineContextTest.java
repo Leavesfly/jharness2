@@ -4,12 +4,15 @@ import io.leavesfly.jharness2.engine.agent.AgentOrchestrator;
 import io.leavesfly.jharness2.engine.cron.CronScheduler;
 import io.leavesfly.jharness2.engine.mcp.McpManager;
 import io.leavesfly.jharness2.engine.skill.SkillRegistry;
+import io.leavesfly.jharness2.engine.stream.StreamEvent;
 import io.leavesfly.jharness2.engine.task.BackgroundTaskManager;
 import org.junit.jupiter.api.Test;
 
 import java.nio.file.Path;
+import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.function.Consumer;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -168,13 +171,13 @@ class EngineContextTest {
         }
     }
 
-    private static class StubLlmClient implements io.leavesfly.jharness2.engine.LlmClient {
+    private static class StubLlmClient implements LlmClient {
         @Override
-        public io.leavesfly.jharness2.engine.LlmResponse chatStream(
-                java.util.List<io.leavesfly.jharness2.engine.ConversationMessage> messages,
-                java.util.List<java.util.Map<String, Object>> tools,
-                java.util.function.Consumer<io.leavesfly.jharness2.engine.stream.StreamEvent> eventConsumer) {
-            return new io.leavesfly.jharness2.engine.LlmResponse("", null, 0, 0);
+        public LlmResponse chatStream(
+                List<ConversationMessage> messages,
+                List<java.util.Map<String, Object>> tools,
+                Consumer<StreamEvent> eventConsumer) {
+            return new LlmResponse("", null, 0, 0);
         }
 
         @Override
