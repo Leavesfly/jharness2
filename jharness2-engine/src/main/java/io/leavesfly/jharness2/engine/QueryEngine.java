@@ -1,22 +1,14 @@
 package io.leavesfly.jharness2.engine;
 
-import io.leavesfly.jharness2.engine.agent.AgentOrchestrator;
-import io.leavesfly.jharness2.engine.compaction.MessageCompactionService;
-import io.leavesfly.jharness2.engine.cron.CronScheduler;
-import io.leavesfly.jharness2.engine.heartbeat.HeartbeatService;
+import io.leavesfly.jharness2.engine.compaction.CompactionStrategy;
 import io.leavesfly.jharness2.engine.hook.HookEvent;
 import io.leavesfly.jharness2.engine.hook.HookExecutor;
-import io.leavesfly.jharness2.engine.mcp.McpManager;
+import io.leavesfly.jharness2.engine.model.ToolResultBlock;
+import io.leavesfly.jharness2.engine.model.ToolUseBlock;
 import io.leavesfly.jharness2.engine.permission.PermissionChecker;
-import io.leavesfly.jharness2.engine.skill.SkillRegistry;
-
 import io.leavesfly.jharness2.engine.stream.*;
-import io.leavesfly.jharness2.engine.task.BackgroundTaskManager;
-import io.leavesfly.jharness2.engine.tool.BaseTool;
-import io.leavesfly.jharness2.engine.tool.ToolExecutionContext;
+import io.leavesfly.jharness2.engine.tool.ToolCallDispatcher;
 import io.leavesfly.jharness2.engine.tool.ToolRegistry;
-import io.leavesfly.jharness2.engine.tool.ToolResult;
-import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -31,17 +23,26 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Consumer;
 
 /**
- * Agent 核心引擎 - 驱动 ReAct 循环（LLM 调用 ↔ 工具调用 ↔ 结果反馈）。
- * 集成权限系统、消息压缩、Sub-Agent、Skill、MCP、Hook、后台任务等子系统。
+ * Agent 核心引擎 - 驱动 ReAct 循环（LLM 推理 ↔ 工具调用 ↔ 结果反馈）。
+ * <p>
+ * 核心职责：
+ * <ul>
+ *   <li>管理 ReAct 循环（推理 → 工具调用 → 反馈 → 再推理）</li>
+ *   <li>管理对话消息历史</li>
+ *   <li>集成权限检查、消息压缩、Hook、会话持久化</li>
+ * </ul>
+ * 可选扩展子系统（Sub-Agent、Skill、MCP、Cron、后台任务等）通过 {@link EngineContext} 管理，
+ * 使本类保持精简，专注于 ReAct 循环本身。
  */
-public class QueryEngine {
+public class QueryEngine implements AutoCloseable {
 
     private static final Logger logger = LoggerFactory.getLogger(QueryEngine.class);
-
     private static final ObjectMapper MAPPER = new ObjectMapper();
 
+    // --- 核心依赖（构造时确定） ---
     private final LlmClient llmClient;
     private final ToolRegistry toolRegistry;
+    private final ToolCallDispatcher toolCallDispatcher;
     private final String systemPrompt;
     private final int maxTurns;
     private final CostTracker costTracker = new CostTracker();
@@ -49,17 +50,14 @@ public class QueryEngine {
     private final AtomicBoolean cancelled = new AtomicBoolean(false);
     private volatile Path workingDirectory;
 
-    // 子系统（可选注入）
+    // --- 可选核心子系统（与 ReAct 循环直接相关） ---
     private volatile PermissionChecker permissionChecker;
-    private volatile MessageCompactionService compactionService;
-    private volatile AgentOrchestrator agentOrchestrator;
-    private volatile SkillRegistry skillRegistry;
-    private volatile McpManager mcpManager;
+    private volatile CompactionStrategy compactionStrategy;
     private volatile HookExecutor hookExecutor;
-    private volatile BackgroundTaskManager backgroundTaskManager;
-    private volatile HeartbeatService heartbeatService;
-    private volatile CronScheduler cronScheduler;
-    private volatile Consumer<List<ConversationMessage>> sessionPersister;
+    private volatile SessionPersister sessionPersister;
+
+    // --- 扩展上下文（承载可选的非核心子系统） ---
+    private volatile EngineContext engineContext;
 
     public QueryEngine(LlmClient llmClient, ToolRegistry toolRegistry,
                        String systemPrompt, int maxTurns) {
@@ -67,6 +65,7 @@ public class QueryEngine {
         this.toolRegistry = toolRegistry;
         this.systemPrompt = systemPrompt;
         this.maxTurns = maxTurns;
+        this.toolCallDispatcher = new ToolCallDispatcher(toolRegistry, null, () -> getWorkingDirectory());
         this.messages.add(ConversationMessage.system(systemPrompt));
     }
 
@@ -74,19 +73,14 @@ public class QueryEngine {
         return CompletableFuture.runAsync(() -> {
             cancelled.set(false);
 
-            // Hook: USER_PROMPT_SUBMIT
             fireHook(HookEvent.USER_PROMPT_SUBMIT, Map.of("prompt", prompt));
-
             messages.add(ConversationMessage.user(prompt));
-
-            // 消息压缩：如果历史过长则压缩
             compactIfNeeded();
 
             int turns = 0;
             while (turns < maxTurns && !cancelled.get()) {
                 turns++;
 
-                // 调用 LLM，获取完整响应（含 text + tool_calls）
                 LlmResponse response = llmClient.chatStream(
                         new ArrayList<>(messages), toolRegistry.toApiSchemas(), event -> {
                             eventConsumer.accept(event);
@@ -97,39 +91,34 @@ public class QueryEngine {
 
                 if (cancelled.get()) break;
 
-                // 将 assistant 消息加入历史
                 List<ConversationMessage.ToolCall> toolCalls = response.getToolCalls();
-                if (response.hasToolCalls()) {
-                    messages.add(ConversationMessage.assistantWithToolCalls(response.getContent(), toolCalls));
-                } else {
+                if (!response.hasToolCalls()) {
                     messages.add(ConversationMessage.assistant(response.getContent()));
                     eventConsumer.accept(new AssistantTurnComplete(turns));
                     break;
                 }
 
-                // 执行工具调用（通过 BaseTool 体系）
-                for (ConversationMessage.ToolCall toolCall : toolCalls) {
-                    if (cancelled.get()) break;
-                    String toolName = toolCall.getFunction().getName();
-                    String toolArgs = toolCall.getFunction().getArguments();
+                messages.add(ConversationMessage.assistantWithToolCalls(response.getContent(), toolCalls));
 
-                    // 权限检查
-                    if (permissionChecker != null && !permissionChecker.isToolAllowed(toolName)) {
-                        String denied = "Permission denied: tool '" + toolName + "' is not allowed";
-                        eventConsumer.accept(new ToolExecutionCompleted(toolName, toolCall.getId(), denied, true));
-                        messages.add(ConversationMessage.toolResult(toolCall.getId(), toolName, denied));
-                        continue;
-                    }
+                // 委托 ToolCallDispatcher 执行工具调用
+                List<ToolUseBlock> toolUses = toolCalls.stream()
+                        .map(tc -> new ToolUseBlock(tc.getId(), tc.getFunction().getName(),
+                                parseArgs(tc.getFunction().getArguments())))
+                        .toList();
 
-                    fireHook(HookEvent.PRE_TOOL_USE, Map.of("toolName", toolName, "toolArgs", toolArgs));
-                    eventConsumer.accept(new ToolExecutionStarted(toolName, toolCall.getId(), toolArgs));
+                // 触发 Hook 并执行
+                for (ToolUseBlock toolUse : toolUses) {
+                    fireHook(HookEvent.PRE_TOOL_USE, Map.of("toolName", toolUse.getName()));
+                }
 
-                    ToolResult toolResult = executeTool(toolName, toolArgs);
+                List<ToolResultBlock> results = toolCallDispatcher.execute(toolUses, eventConsumer);
 
+                for (int i = 0; i < results.size(); i++) {
+                    ToolResultBlock result = results.get(i);
+                    ToolUseBlock toolUse = toolUses.get(i);
                     fireHook(HookEvent.POST_TOOL_USE,
-                            Map.of("toolName", toolName, "result", toolResult.getOutput(), "isError", toolResult.isError()));
-                    eventConsumer.accept(new ToolExecutionCompleted(toolName, toolCall.getId(), toolResult.getOutput(), toolResult.isError()));
-                    messages.add(ConversationMessage.toolResult(toolCall.getId(), toolName, toolResult.getOutput()));
+                            Map.of("toolName", toolUse.getName(), "result", result.getContent(), "isError", result.isError()));
+                    messages.add(ConversationMessage.toolResult(result.getToolCallId(), toolUse.getName(), result.getContent()));
                 }
 
                 persistIfNeeded();
@@ -139,37 +128,19 @@ public class QueryEngine {
         });
     }
 
-    @SuppressWarnings("unchecked")
-    private ToolResult executeTool(String toolName, String toolArgs) {
-        BaseTool<Object> tool = (BaseTool<Object>) toolRegistry.get(toolName);
-        if (tool == null) {
-            return ToolResult.error("未知工具: " + toolName);
-        }
+    private com.fasterxml.jackson.databind.JsonNode parseArgs(String arguments) {
         try {
-            JsonNode argsNode = MAPPER.readTree(toolArgs != null ? toolArgs : "{}");
-            Object input = MAPPER.treeToValue(argsNode, tool.getInputClass());
-
-            // 权限检查（路径 + 命令级别）
-            if (permissionChecker != null) {
-                String filePath = argsNode.has("file_path") ? argsNode.get("file_path").asText() : null;
-                String command = argsNode.has("command") ? argsNode.get("command").asText() : null;
-                if (!permissionChecker.isAllowed(toolName, tool.isReadOnly(input), filePath, command)) {
-                    return ToolResult.error("权限拒绝: 操作不被允许");
-                }
-            }
-
-            Path cwd = workingDirectory != null ? workingDirectory : Path.of(".");
-            ToolExecutionContext context = new ToolExecutionContext(cwd, permissionChecker);
-            return tool.execute(input, context).join();
+            return MAPPER.readTree(arguments != null ? arguments : "{}");
         } catch (Exception e) {
-            logger.error("Tool execution failed: {}", toolName, e);
-            return ToolResult.error("工具执行失败: " + e.getMessage());
+            logger.warn("Failed to parse tool arguments: {}", e.getMessage());
+            return MAPPER.createObjectNode();
         }
     }
 
     private void compactIfNeeded() {
-        if (compactionService != null && compactionService.needsCompaction(messages)) {
-            List<ConversationMessage> compacted = compactionService.compact(new ArrayList<>(messages), llmClient);
+        CompactionStrategy strategy = this.compactionStrategy;
+        if (strategy != null && strategy.needsCompaction(messages)) {
+            List<ConversationMessage> compacted = strategy.compact(new ArrayList<>(messages), llmClient);
             messages.clear();
             messages.addAll(compacted);
             logger.info("Messages compacted: now {} messages", messages.size());
@@ -177,9 +148,10 @@ public class QueryEngine {
     }
 
     private void fireHook(HookEvent event, Map<String, Object> payload) {
-        if (hookExecutor != null) {
+        HookExecutor executor = this.hookExecutor;
+        if (executor != null) {
             try {
-                hookExecutor.fire(event, payload).join();
+                executor.fire(event, payload).join();
             } catch (Exception e) {
                 logger.debug("Hook fire failed for {}: {}", event, e.getMessage());
             }
@@ -187,10 +159,10 @@ public class QueryEngine {
     }
 
     private void persistIfNeeded() {
-        Consumer<List<ConversationMessage>> persister = this.sessionPersister;
+        SessionPersister persister = this.sessionPersister;
         if (persister != null) {
             try {
-                persister.accept(new ArrayList<>(messages));
+                persister.persist(new ArrayList<>(messages));
             } catch (Exception e) {
                 logger.debug("Session persist failed (ignored): {}", e.getMessage());
             }
@@ -204,14 +176,11 @@ public class QueryEngine {
         fireHook(HookEvent.STOP, Map.of());
     }
 
+    @Override
     public void close() {
         cancelled.set(true);
         fireHook(HookEvent.SESSION_END, Map.of());
-        if (mcpManager != null) mcpManager.close();
-        if (agentOrchestrator != null) agentOrchestrator.shutdown();
-        if (backgroundTaskManager != null) backgroundTaskManager.shutdown();
-        if (heartbeatService != null) heartbeatService.stop();
-        if (cronScheduler != null) cronScheduler.shutdown();
+        if (engineContext != null) engineContext.close();
         if (llmClient != null) llmClient.close();
     }
 
@@ -240,83 +209,57 @@ public class QueryEngine {
         return toolRegistry;
     }
 
+    public ToolCallDispatcher getToolCallDispatcher() {
+        return toolCallDispatcher;
+    }
+
     public PermissionChecker getPermissionChecker() {
         return permissionChecker;
     }
 
-    public AgentOrchestrator getAgentOrchestrator() {
-        return agentOrchestrator;
-    }
-
-    public SkillRegistry getSkillRegistry() {
-        return skillRegistry;
-    }
-
-    public McpManager getMcpManager() {
-        return mcpManager;
+    public void setPermissionChecker(PermissionChecker permissionChecker) {
+        this.permissionChecker = permissionChecker;
+        // 同步更新 ToolCallDispatcher 中的权限检查器
+        this.toolCallDispatcher.setPermissionChecker(permissionChecker);
     }
 
     public HookExecutor getHookExecutor() {
         return hookExecutor;
     }
 
-    public BackgroundTaskManager getBackgroundTaskManager() {
-        return backgroundTaskManager;
-    }
-
-    public HeartbeatService getHeartbeatService() {
-        return heartbeatService;
-    }
-
-    public CronScheduler getCronScheduler() {
-        return cronScheduler;
-    }
-
-    public void setPermissionChecker(PermissionChecker permissionChecker) {
-        this.permissionChecker = permissionChecker;
-    }
-
-    public void setCompactionService(MessageCompactionService compactionService) {
-        this.compactionService = compactionService;
-    }
-
-    public void setAgentOrchestrator(AgentOrchestrator agentOrchestrator) {
-        this.agentOrchestrator = agentOrchestrator;
-    }
-
-    public void setSkillRegistry(SkillRegistry skillRegistry) {
-        this.skillRegistry = skillRegistry;
-    }
-
-    public void setMcpManager(McpManager mcpManager) {
-        this.mcpManager = mcpManager;
-    }
-
     public void setHookExecutor(HookExecutor hookExecutor) {
         this.hookExecutor = hookExecutor;
     }
 
-    public void setBackgroundTaskManager(BackgroundTaskManager backgroundTaskManager) {
-        this.backgroundTaskManager = backgroundTaskManager;
+    public CompactionStrategy getCompactionStrategy() {
+        return compactionStrategy;
     }
 
-    public void setHeartbeatService(HeartbeatService heartbeatService) {
-        this.heartbeatService = heartbeatService;
+    public void setCompactionStrategy(CompactionStrategy compactionStrategy) {
+        this.compactionStrategy = compactionStrategy;
     }
 
-    public void setCronScheduler(CronScheduler cronScheduler) {
-        this.cronScheduler = cronScheduler;
+    public SessionPersister getSessionPersister() {
+        return sessionPersister;
     }
 
-    public void setSessionPersister(Consumer<List<ConversationMessage>> persister) {
+    public void setSessionPersister(SessionPersister persister) {
         this.sessionPersister = persister;
     }
 
-    public void setWorkingDirectory(java.nio.file.Path workingDirectory) {
+    public EngineContext getEngineContext() {
+        return engineContext;
+    }
+
+    public void setEngineContext(EngineContext engineContext) {
+        this.engineContext = engineContext;
+    }
+
+    public void setWorkingDirectory(Path workingDirectory) {
         this.workingDirectory = workingDirectory;
     }
 
-    public java.nio.file.Path getWorkingDirectory() {
-        return workingDirectory;
+    public Path getWorkingDirectory() {
+        return workingDirectory != null ? workingDirectory : Path.of(".");
     }
 }

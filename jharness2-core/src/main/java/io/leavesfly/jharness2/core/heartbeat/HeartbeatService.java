@@ -1,4 +1,4 @@
-package io.leavesfly.jharness2.engine.heartbeat;
+package io.leavesfly.jharness2.core.heartbeat;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;

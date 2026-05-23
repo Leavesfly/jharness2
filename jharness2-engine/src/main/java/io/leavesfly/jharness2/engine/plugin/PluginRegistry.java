@@ -116,13 +116,24 @@ public class PluginRegistry {
     }
 
     private HookEvent resolveHookEvent(String eventName) {
-        for (HookEvent event : HookEvent.values()) {
-            if (event.getValue().equals(eventName) || event.name().equalsIgnoreCase(eventName)) {
-                return event;
-            }
-        }
-        return null;
+        // 尝试匹配内置事件
+        HookEvent matched = BUILTIN_HOOK_EVENTS.get(eventName.toLowerCase().trim());
+        if (matched != null) return matched;
+
+        // 支持自定义事件名称
+        return HookEvent.of(eventName);
     }
+
+    private static final Map<String, HookEvent> BUILTIN_HOOK_EVENTS = Map.of(
+            "session_start", HookEvent.SESSION_START,
+            "session_end", HookEvent.SESSION_END,
+            "user_prompt_submit", HookEvent.USER_PROMPT_SUBMIT,
+            "stop", HookEvent.STOP,
+            "pre_tool_use", HookEvent.PRE_TOOL_USE,
+            "post_tool_use", HookEvent.POST_TOOL_USE,
+            "subagent_stop", HookEvent.SUBAGENT_STOP,
+            "notification", HookEvent.NOTIFICATION
+    );
 
     public Optional<LoadedPlugin> get(String name) {
         return Optional.ofNullable(plugins.get(name));

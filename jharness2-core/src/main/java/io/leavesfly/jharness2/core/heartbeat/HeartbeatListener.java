@@ -1,4 +1,4 @@
-package io.leavesfly.jharness2.engine.heartbeat;
+package io.leavesfly.jharness2.core.heartbeat;
 
 /**
  * 心跳事件监听器。当心跳触发时被回调。

@@ -31,13 +31,17 @@ public final class ToolCallDispatcher {
     private static final long PARALLEL_TIMEOUT_MINUTES = 5;
 
     private final ToolRegistry toolRegistry;
-    private final PermissionChecker permissionChecker;
+    private volatile PermissionChecker permissionChecker;
     private final Supplier<Path> cwdSupplier;
 
     public ToolCallDispatcher(ToolRegistry toolRegistry, PermissionChecker permissionChecker, Supplier<Path> cwdSupplier) {
         this.toolRegistry = toolRegistry;
         this.permissionChecker = permissionChecker;
         this.cwdSupplier = cwdSupplier;
+    }
+
+    public void setPermissionChecker(PermissionChecker permissionChecker) {
+        this.permissionChecker = permissionChecker;
     }
 
     /**

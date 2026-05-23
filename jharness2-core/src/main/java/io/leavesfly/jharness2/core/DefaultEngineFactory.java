@@ -1,10 +1,13 @@
 package io.leavesfly.jharness2.core;
 
 import io.leavesfly.jharness2.engine.ConversationMessage;
+import io.leavesfly.jharness2.engine.EngineContext;
 import io.leavesfly.jharness2.engine.OpenAiClient;
 import io.leavesfly.jharness2.engine.QueryEngine;
+import io.leavesfly.jharness2.engine.SessionPersister;
 import io.leavesfly.jharness2.engine.agent.AgentOrchestrator;
 import io.leavesfly.jharness2.engine.compaction.MessageCompactionService;
+import io.leavesfly.jharness2.engine.cron.CronScheduler;
 import io.leavesfly.jharness2.engine.hook.HookExecutor;
 import io.leavesfly.jharness2.engine.mcp.McpManager;
 import io.leavesfly.jharness2.engine.permission.PermissionChecker;
@@ -107,12 +110,12 @@ public class DefaultEngineFactory implements EngineFactory {
         // 5. 构建 system prompt（含技能信息）
         String systemPrompt = buildSystemPrompt(context.getUserId(), workspace, skillRegistry);
 
-        // 5. 创建 QueryEngine
+        // 6. 创建 QueryEngine（核心依赖）
         QueryEngine engine = new QueryEngine(llmClient, toolRegistry, systemPrompt, engineConfig.getMaxTurns());
         engine.setWorkingDirectory(workspace);
         engine.getCostTracker().setModelName(model);
 
-        // 6. 权限系统
+        // 7. 权限系统
         PermissionChecker permissionChecker = new PermissionChecker(PermissionMode.DEFAULT);
         permissionChecker.addPathRule(workspace.toAbsolutePath().toString() + "/**", true);
         permissionChecker.addPathRule("/**", false);
@@ -121,36 +124,45 @@ public class DefaultEngineFactory implements EngineFactory {
         }
         engine.setPermissionChecker(permissionChecker);
 
-        // 7. 消息压缩
+        // 8. 消息压缩策略
         MessageCompactionService compactionService = new MessageCompactionService();
         compactionService.withSystemPromptTokens(systemPrompt.length() / 3);
-        engine.setCompactionService(compactionService);
+        engine.setCompactionStrategy(compactionService);
 
-        // 8. Sub-Agent 协调器 + 注册为 Tool
-        AgentOrchestrator agentOrchestrator = new AgentOrchestrator(llmClient);
-        engine.setAgentOrchestrator(agentOrchestrator);
-        toolRegistry.register(new SubAgentTool(agentOrchestrator));
-
-        // 9. Skill 注入
-        engine.setSkillRegistry(skillRegistry);
-
-        // 10. MCP 管理器 + 插件声明的 MCP 服务器 + 异步连接与工具注册
-        McpManager mcpManager = new McpManager();
-        pluginRegistry.injectMcpServers(mcpManager);
-        mcpManager.connectAndRegisterAsync(toolRegistry);
-        engine.setMcpManager(mcpManager);
-
-        // 11. Hook 系统 + 插件声明的 Hooks
+        // 9. Hook 系统 + 插件声明的 Hooks
         HookExecutor hookExecutor = new HookExecutor();
         pluginRegistry.injectHooks(hookExecutor);
         engine.setHookExecutor(hookExecutor);
 
-        // 12. 后台任务管理
+        // 10. 构建 EngineContext（可选扩展子系统）
+        EngineContext engineContext = new EngineContext();
+
+        // Sub-Agent 协调器 + 注册为 Tool
+        AgentOrchestrator agentOrchestrator = new AgentOrchestrator(llmClient);
+        engineContext.setAgentOrchestrator(agentOrchestrator);
+        toolRegistry.register(new SubAgentTool(agentOrchestrator));
+
+        // Skill 注入
+        engineContext.setSkillRegistry(skillRegistry);
+
+        // MCP 管理器 + 插件声明的 MCP 服务器 + 异步连接与工具注册
+        McpManager mcpManager = new McpManager();
+        pluginRegistry.injectMcpServers(mcpManager);
+        mcpManager.connectAndRegisterAsync(toolRegistry);
+        engineContext.setMcpManager(mcpManager);
+
+        // Cron 调度器
+        CronScheduler cronScheduler = new CronScheduler();
+        engineContext.setCronScheduler(cronScheduler);
+
+        // 后台任务管理
         Path taskOutputDir = workspace.resolve(".jharness/task-output");
         BackgroundTaskManager taskManager = new BackgroundTaskManager(taskOutputDir);
-        engine.setBackgroundTaskManager(taskManager);
+        engineContext.setBackgroundTaskManager(taskManager);
 
-        // 13. 会话自动保存
+        engine.setEngineContext(engineContext);
+
+        // 11. 会话自动保存
         String userId = context.getUserId();
         String sessionId = context.getSessionId();
         engine.setSessionPersister(messages -> {

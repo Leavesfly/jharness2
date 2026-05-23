@@ -1,4 +1,4 @@
-package io.leavesfly.jharness2.engine.heartbeat;
+package io.leavesfly.jharness2.core.heartbeat;
 
 /**
  * 心跳服务配置。
