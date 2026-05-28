@@ -1,6 +1,6 @@
 package io.leavesfly.jharness2.web.controller;
 
-import io.leavesfly.jharness2.core.EngineLimitExceededException;
+import io.leavesfly.jharness2.core.EngineLimitException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
@@ -17,8 +17,8 @@ public class GlobalExceptionHandler {
 
     private static final Logger logger = LoggerFactory.getLogger(GlobalExceptionHandler.class);
 
-    @ExceptionHandler(EngineLimitExceededException.class)
-    public ResponseEntity<?> handleEngineLimitExceeded(EngineLimitExceededException ex) {
+    @ExceptionHandler(EngineLimitException.class)
+    public ResponseEntity<?> handleEngineLimitExceeded(EngineLimitException ex) {
         return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS)
                 .body(Map.of("error", ex.getMessage()));
     }

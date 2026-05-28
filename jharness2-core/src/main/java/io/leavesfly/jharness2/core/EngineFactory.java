@@ -1,6 +1,6 @@
 package io.leavesfly.jharness2.core;
 
-import io.leavesfly.jharness2.engine.ConversationMessage;
+import io.leavesfly.jharness2.engine.message.ConversationMessage;
 
 import java.util.List;
 

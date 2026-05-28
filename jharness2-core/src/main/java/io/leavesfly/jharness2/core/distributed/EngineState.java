@@ -1,6 +1,6 @@
 package io.leavesfly.jharness2.core.distributed;
 
-import io.leavesfly.jharness2.engine.ConversationMessage;
+import io.leavesfly.jharness2.engine.message.ConversationMessage;
 
 import java.time.Instant;
 import java.util.List;

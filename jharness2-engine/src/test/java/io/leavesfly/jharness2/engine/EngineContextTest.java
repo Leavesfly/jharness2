@@ -1,11 +1,14 @@
 package io.leavesfly.jharness2.engine;
 
-import io.leavesfly.jharness2.engine.agent.AgentOrchestrator;
-import io.leavesfly.jharness2.engine.cron.CronScheduler;
-import io.leavesfly.jharness2.engine.mcp.McpManager;
-import io.leavesfly.jharness2.engine.skill.SkillRegistry;
+import io.leavesfly.jharness2.engine.ext.agent.AgentOrchestrator;
+import io.leavesfly.jharness2.engine.ext.cron.CronScheduler;
+import io.leavesfly.jharness2.engine.ext.mcp.McpManager;
+import io.leavesfly.jharness2.engine.ext.skill.SkillRegistry;
 import io.leavesfly.jharness2.engine.stream.StreamEvent;
-import io.leavesfly.jharness2.engine.task.BackgroundTaskManager;
+import io.leavesfly.jharness2.engine.ext.task.BackgroundTaskManager;
+import io.leavesfly.jharness2.engine.llm.LlmClient;
+import io.leavesfly.jharness2.engine.llm.LlmResponse;
+import io.leavesfly.jharness2.engine.message.ConversationMessage;
 import org.junit.jupiter.api.Test;
 
 import java.nio.file.Path;

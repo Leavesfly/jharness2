@@ -1,6 +1,6 @@
 package io.leavesfly.jharness2.engine.tool;
 
-import io.leavesfly.jharness2.engine.permission.PermissionChecker;
+import io.leavesfly.jharness2.engine.policy.access.PermissionChecker;
 
 import java.nio.file.Path;
 import java.util.Map;

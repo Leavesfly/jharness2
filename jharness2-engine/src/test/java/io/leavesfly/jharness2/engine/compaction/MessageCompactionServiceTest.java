@@ -1,8 +1,9 @@
 package io.leavesfly.jharness2.engine.compaction;
 
-import io.leavesfly.jharness2.engine.ConversationMessage;
-import io.leavesfly.jharness2.engine.LlmClient;
-import io.leavesfly.jharness2.engine.LlmResponse;
+import io.leavesfly.jharness2.engine.policy.context.MessageCompactionService;
+import io.leavesfly.jharness2.engine.message.ConversationMessage;
+import io.leavesfly.jharness2.engine.llm.LlmClient;
+import io.leavesfly.jharness2.engine.llm.LlmResponse;
 import io.leavesfly.jharness2.engine.stream.StreamEvent;
 import org.junit.jupiter.api.Test;
 

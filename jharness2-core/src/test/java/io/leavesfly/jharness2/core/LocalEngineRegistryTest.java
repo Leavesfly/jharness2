@@ -1,6 +1,6 @@
 package io.leavesfly.jharness2.core;
 
-import io.leavesfly.jharness2.engine.ConversationMessage;
+import io.leavesfly.jharness2.engine.message.ConversationMessage;
 import io.leavesfly.jharness2.engine.QueryEngine;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -50,7 +50,7 @@ class LocalEngineRegistryTest {
             registry.getOrCreate(ctx);
         }
         UserContext overflow = new UserContext("user1", "s99", Path.of("/tmp"), "model", "key", "url");
-        assertThrows(EngineLimitExceededException.class, () -> registry.getOrCreate(overflow));
+        assertThrows(EngineLimitException.class, () -> registry.getOrCreate(overflow));
     }
 
     @Test

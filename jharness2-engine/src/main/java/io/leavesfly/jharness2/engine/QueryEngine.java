@@ -1,11 +1,25 @@
 package io.leavesfly.jharness2.engine;
 
-import io.leavesfly.jharness2.engine.compaction.CompactionStrategy;
-import io.leavesfly.jharness2.engine.hook.HookEvent;
-import io.leavesfly.jharness2.engine.hook.HookExecutor;
-import io.leavesfly.jharness2.engine.model.ToolResultBlock;
-import io.leavesfly.jharness2.engine.model.ToolUseBlock;
-import io.leavesfly.jharness2.engine.permission.PermissionChecker;
+import io.leavesfly.jharness2.engine.llm.CostTracker;
+import io.leavesfly.jharness2.engine.llm.LlmClient;
+import io.leavesfly.jharness2.engine.llm.LlmResponse;
+import io.leavesfly.jharness2.engine.message.ConversationMessage;
+import io.leavesfly.jharness2.engine.message.ToolResultBlock;
+import io.leavesfly.jharness2.engine.message.ToolUseBlock;
+import io.leavesfly.jharness2.engine.policy.access.Guardrail;
+import io.leavesfly.jharness2.engine.policy.access.GuardrailExecutor;
+import io.leavesfly.jharness2.engine.policy.access.GuardrailResult;
+import io.leavesfly.jharness2.engine.policy.access.PermissionChecker;
+import io.leavesfly.jharness2.engine.policy.context.CompactionStrategy;
+import io.leavesfly.jharness2.engine.policy.context.ContextBudget;
+import io.leavesfly.jharness2.engine.policy.context.TokenCounter;
+import io.leavesfly.jharness2.engine.policy.observe.NoopTracer;
+import io.leavesfly.jharness2.engine.policy.observe.Span;
+import io.leavesfly.jharness2.engine.policy.observe.SpanStatus;
+import io.leavesfly.jharness2.engine.policy.observe.Tracer;
+import io.leavesfly.jharness2.engine.policy.pipeline.MiddlewarePipeline;
+import io.leavesfly.jharness2.engine.ext.hook.HookEvent;
+import io.leavesfly.jharness2.engine.ext.hook.HookExecutor;
 import io.leavesfly.jharness2.engine.stream.*;
 import io.leavesfly.jharness2.engine.tool.ToolCallDispatcher;
 import io.leavesfly.jharness2.engine.tool.ToolRegistry;
@@ -55,6 +69,11 @@ public class QueryEngine implements AutoCloseable {
     private volatile CompactionStrategy compactionStrategy;
     private volatile HookExecutor hookExecutor;
     private volatile SessionPersister sessionPersister;
+    private volatile Tracer tracer = NoopTracer.INSTANCE;
+    private volatile TokenCounter tokenCounter;
+    private volatile ContextBudget contextBudget;
+    private volatile GuardrailExecutor guardrailExecutor;
+    private volatile MiddlewarePipeline middlewarePipeline;
 
     // --- 扩展上下文（承载可选的非核心子系统） ---
     private volatile EngineContext engineContext;
@@ -73,58 +92,145 @@ public class QueryEngine implements AutoCloseable {
         return CompletableFuture.runAsync(() -> {
             cancelled.set(false);
 
-            fireHook(HookEvent.USER_PROMPT_SUBMIT, Map.of("prompt", prompt));
-            messages.add(ConversationMessage.user(prompt));
-            compactIfNeeded();
+            Span sessionSpan = tracer.startSpan("submit-message", Map.of("prompt_length", prompt.length()));
+            try {
+                // Input Guardrail 检查
+                if (guardrailExecutor != null) {
+                    GuardrailResult inputCheck = guardrailExecutor.execute(
+                            Guardrail.Phase.INPUT, new ArrayList<>(messages), prompt);
+                    if (inputCheck.tripwire()) {
+                        sessionSpan.setAttribute("guardrail_tripwire", inputCheck.reason());
+                        sessionSpan.setStatus(SpanStatus.ERROR);
+                        eventConsumer.accept(new AssistantTurnComplete(0));
+                        return;
+                    }
+                }
 
-            int turns = 0;
-            while (turns < maxTurns && !cancelled.get()) {
-                turns++;
+                fireHook(HookEvent.USER_PROMPT_SUBMIT, Map.of("prompt", prompt));
+                messages.add(ConversationMessage.user(prompt));
+                compactIfNeeded();
 
-                LlmResponse response = llmClient.chatStream(
-                        new ArrayList<>(messages), toolRegistry.toApiSchemas(), event -> {
-                            eventConsumer.accept(event);
-                            if (event instanceof UsageReport report) {
-                                costTracker.addUsage(report.getInputTokens(), report.getOutputTokens());
+                int turns = 0;
+                while (turns < maxTurns && !cancelled.get()) {
+                    turns++;
+
+                    Span turnSpan = sessionSpan.startChild("react-turn-" + turns,
+                            Map.of("turn", turns, "message_count", messages.size()));
+                    try {
+                        // LLM 调用（经由 Middleware 管道）
+                        Span llmSpan = turnSpan.startChild("llm-call");
+                        LlmResponse response;
+                        try {
+                            Consumer<StreamEvent> llmEventConsumer = event -> {
+                                eventConsumer.accept(event);
+                                if (event instanceof UsageReport report) {
+                                    costTracker.addUsage(report.getInputTokens(), report.getOutputTokens());
+                                }
+                            };
+                            if (middlewarePipeline != null) {
+                                response = middlewarePipeline.execute(
+                                        new ArrayList<>(messages), toolRegistry.toApiSchemas(), llmEventConsumer);
+                            } else {
+                                response = llmClient.chatStream(
+                                        new ArrayList<>(messages), toolRegistry.toApiSchemas(), llmEventConsumer);
                             }
-                        });
+                            llmSpan.setAttribute("input_tokens", response.getPromptTokens());
+                            llmSpan.setAttribute("output_tokens", response.getCompletionTokens());
+                            llmSpan.setAttribute("has_tool_calls", response.hasToolCalls());
+                            llmSpan.setAttribute("finish_reason", response.getFinishReason().name());
+                            llmSpan.setStatus(SpanStatus.OK);
+                        } catch (Exception e) {
+                            llmSpan.setError(e);
+                            throw e;
+                        } finally {
+                            llmSpan.close();
+                        }
 
-                if (cancelled.get()) break;
+                        if (cancelled.get()) {
+                            turnSpan.setAttribute("cancelled", true);
+                            break;
+                        }
 
-                List<ConversationMessage.ToolCall> toolCalls = response.getToolCalls();
-                if (!response.hasToolCalls()) {
-                    messages.add(ConversationMessage.assistant(response.getContent()));
-                    eventConsumer.accept(new AssistantTurnComplete(turns));
-                    break;
-                }
+                        List<ConversationMessage.ToolCall> toolCalls = response.getToolCalls();
+                        if (!response.hasToolCalls()) {
+                            // Output Guardrail 检查
+                            String outputContent = response.getContent();
+                            if (guardrailExecutor != null && outputContent != null) {
+                                GuardrailResult outputCheck = guardrailExecutor.execute(
+                                        Guardrail.Phase.OUTPUT, new ArrayList<>(messages), outputContent);
+                                if (outputCheck.tripwire()) {
+                                    turnSpan.setAttribute("guardrail_output_tripwire", outputCheck.reason());
+                                    turnSpan.setStatus(SpanStatus.ERROR);
+                                    eventConsumer.accept(new AssistantTurnComplete(turns));
+                                    break;
+                                }
+                                if (outputCheck.correctedContent() != null) {
+                                    outputContent = outputCheck.correctedContent();
+                                }
+                            }
+                            messages.add(ConversationMessage.assistant(outputContent));
+                            eventConsumer.accept(new AssistantTurnComplete(turns));
+                            turnSpan.setAttribute("finish_reason", "no_tool_calls");
+                            break;
+                        }
 
-                messages.add(ConversationMessage.assistantWithToolCalls(response.getContent(), toolCalls));
+                        messages.add(ConversationMessage.assistantWithToolCalls(response.getContent(), toolCalls));
 
-                // 委托 ToolCallDispatcher 执行工具调用
-                List<ToolUseBlock> toolUses = toolCalls.stream()
-                        .map(tc -> new ToolUseBlock(tc.getId(), tc.getFunction().getName(),
-                                parseArgs(tc.getFunction().getArguments())))
-                        .toList();
+                        // 工具调用
+                        List<ToolUseBlock> toolUses = toolCalls.stream()
+                                .map(tc -> new ToolUseBlock(tc.getId(), tc.getFunction().getName(),
+                                        parseArgs(tc.getFunction().getArguments())))
+                                .toList();
 
-                // 触发 Hook 并执行
-                for (ToolUseBlock toolUse : toolUses) {
-                    fireHook(HookEvent.PRE_TOOL_USE, Map.of("toolName", toolUse.getName()));
-                }
+                        for (ToolUseBlock toolUse : toolUses) {
+                            fireHook(HookEvent.PRE_TOOL_USE, Map.of("toolName", toolUse.getName()));
+                        }
 
-                List<ToolResultBlock> results = toolCallDispatcher.execute(toolUses, eventConsumer);
+                        Span toolsSpan = turnSpan.startChild("tool-execution",
+                                Map.of("tool_count", toolUses.size(),
+                                        "tool_names", toolUses.stream().map(ToolUseBlock::getName).toList().toString()));
+                        List<ToolResultBlock> results;
+                        try {
+                            results = toolCallDispatcher.execute(toolUses, eventConsumer);
+                            long errorCount = results.stream().filter(ToolResultBlock::isError).count();
+                            toolsSpan.setAttribute("error_count", errorCount);
+                            toolsSpan.setStatus(errorCount > 0 ? SpanStatus.ERROR : SpanStatus.OK);
+                        } catch (Exception e) {
+                            toolsSpan.setError(e);
+                            throw e;
+                        } finally {
+                            toolsSpan.close();
+                        }
 
-                for (int i = 0; i < results.size(); i++) {
-                    ToolResultBlock result = results.get(i);
-                    ToolUseBlock toolUse = toolUses.get(i);
-                    fireHook(HookEvent.POST_TOOL_USE,
-                            Map.of("toolName", toolUse.getName(), "result", result.getContent(), "isError", result.isError()));
-                    messages.add(ConversationMessage.toolResult(result.getToolCallId(), toolUse.getName(), result.getContent()));
+                        for (int i = 0; i < results.size(); i++) {
+                            ToolResultBlock result = results.get(i);
+                            ToolUseBlock toolUse = toolUses.get(i);
+                            fireHook(HookEvent.POST_TOOL_USE,
+                                    Map.of("toolName", toolUse.getName(), "result", result.getContent(), "isError", result.isError()));
+                            messages.add(ConversationMessage.toolResult(result.getToolCallId(), toolUse.getName(), result.getContent()));
+                        }
+
+                        persistIfNeeded();
+                        turnSpan.setStatus(SpanStatus.OK);
+                    } catch (Exception e) {
+                        turnSpan.setError(e);
+                        throw e;
+                    } finally {
+                        turnSpan.close();
+                    }
                 }
 
                 persistIfNeeded();
+                sessionSpan.setAttribute("total_turns", turns);
+                sessionSpan.setAttribute("total_input_tokens", costTracker.getInputTokens());
+                sessionSpan.setAttribute("total_output_tokens", costTracker.getOutputTokens());
+                sessionSpan.setStatus(SpanStatus.OK);
+            } catch (Exception e) {
+                sessionSpan.setError(e);
+                throw e;
+            } finally {
+                sessionSpan.close();
             }
-
-            persistIfNeeded();
         });
     }
 
@@ -139,7 +245,19 @@ public class QueryEngine implements AutoCloseable {
 
     private void compactIfNeeded() {
         CompactionStrategy strategy = this.compactionStrategy;
-        if (strategy != null && strategy.needsCompaction(messages)) {
+        if (strategy == null) return;
+
+        boolean shouldCompact;
+        // 优先使用 token 精确计数判断
+        if (tokenCounter != null && contextBudget != null) {
+            int currentTokens = tokenCounter.countMessages(new ArrayList<>(messages));
+            shouldCompact = contextBudget.needsCompaction(currentTokens);
+        } else {
+            // 回退到 CompactionStrategy 自身的判断逻辑（通常基于消息数量）
+            shouldCompact = strategy.needsCompaction(messages);
+        }
+
+        if (shouldCompact) {
             List<ConversationMessage> compacted = strategy.compact(new ArrayList<>(messages), llmClient);
             messages.clear();
             messages.addAll(compacted);
@@ -253,6 +371,46 @@ public class QueryEngine implements AutoCloseable {
 
     public void setEngineContext(EngineContext engineContext) {
         this.engineContext = engineContext;
+    }
+
+    public Tracer getTracer() {
+        return tracer;
+    }
+
+    public void setTracer(Tracer tracer) {
+        this.tracer = tracer != null ? tracer : NoopTracer.INSTANCE;
+    }
+
+    public TokenCounter getTokenCounter() {
+        return tokenCounter;
+    }
+
+    public void setTokenCounter(TokenCounter tokenCounter) {
+        this.tokenCounter = tokenCounter;
+    }
+
+    public ContextBudget getContextBudget() {
+        return contextBudget;
+    }
+
+    public void setContextBudget(ContextBudget contextBudget) {
+        this.contextBudget = contextBudget;
+    }
+
+    public GuardrailExecutor getGuardrailExecutor() {
+        return guardrailExecutor;
+    }
+
+    public void setGuardrailExecutor(GuardrailExecutor guardrailExecutor) {
+        this.guardrailExecutor = guardrailExecutor;
+    }
+
+    public MiddlewarePipeline getMiddlewarePipeline() {
+        return middlewarePipeline;
+    }
+
+    public void setMiddlewarePipeline(MiddlewarePipeline middlewarePipeline) {
+        this.middlewarePipeline = middlewarePipeline;
     }
 
     public void setWorkingDirectory(Path workingDirectory) {

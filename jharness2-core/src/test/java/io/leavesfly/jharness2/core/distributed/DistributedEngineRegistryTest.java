@@ -1,7 +1,7 @@
 package io.leavesfly.jharness2.core.distributed;
 
 import io.leavesfly.jharness2.core.*;
-import io.leavesfly.jharness2.engine.ConversationMessage;
+import io.leavesfly.jharness2.engine.message.ConversationMessage;
 import io.leavesfly.jharness2.engine.QueryEngine;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -120,7 +120,7 @@ class DistributedEngineRegistryTest {
             stateStore.incrementUserCount("user1");
         }
         UserContext context = new UserContext("user1", "s99", Path.of("/tmp"), "model", "key", "url");
-        assertThrows(EngineLimitExceededException.class, () -> registry.getOrCreate(context));
+        assertThrows(EngineLimitException.class, () -> registry.getOrCreate(context));
     }
 
     @Test

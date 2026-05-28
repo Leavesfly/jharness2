@@ -1,5 +1,6 @@
 package io.leavesfly.jharness2.engine.hook;
 
+import io.leavesfly.jharness2.engine.ext.hook.HookEvent;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.*;

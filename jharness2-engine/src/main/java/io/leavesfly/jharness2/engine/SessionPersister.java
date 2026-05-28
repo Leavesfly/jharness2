@@ -1,5 +1,7 @@
 package io.leavesfly.jharness2.engine;
 
+import io.leavesfly.jharness2.engine.message.ConversationMessage;
+
 import java.util.List;
 
 /**

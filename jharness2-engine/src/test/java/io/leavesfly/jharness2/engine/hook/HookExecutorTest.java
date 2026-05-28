@@ -1,5 +1,8 @@
 package io.leavesfly.jharness2.engine.hook;
 
+import io.leavesfly.jharness2.engine.ext.hook.HookExecutor;
+import io.leavesfly.jharness2.engine.ext.hook.HookEvent;
+import io.leavesfly.jharness2.engine.ext.hook.HookHandler;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 

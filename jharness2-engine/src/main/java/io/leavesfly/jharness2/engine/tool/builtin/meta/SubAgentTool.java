@@ -1,9 +1,9 @@
 package io.leavesfly.jharness2.engine.tool.builtin.meta;
 
-import io.leavesfly.jharness2.engine.agent.AgentOrchestrator;
-import io.leavesfly.jharness2.engine.agent.AgentResult;
-import io.leavesfly.jharness2.engine.agent.AgentRole;
-import io.leavesfly.jharness2.engine.agent.AgentTask;
+import io.leavesfly.jharness2.engine.ext.agent.AgentOrchestrator;
+import io.leavesfly.jharness2.engine.ext.agent.AgentResult;
+import io.leavesfly.jharness2.engine.ext.agent.AgentRole;
+import io.leavesfly.jharness2.engine.ext.agent.AgentTask;
 import io.leavesfly.jharness2.engine.tool.BaseTool;
 import io.leavesfly.jharness2.engine.tool.ToolExecutionContext;
 import io.leavesfly.jharness2.engine.tool.ToolResult;

@@ -1,12 +1,16 @@
 package io.leavesfly.jharness2.engine;
 
-import io.leavesfly.jharness2.engine.compaction.CompactionStrategy;
-import io.leavesfly.jharness2.engine.hook.HookEvent;
-import io.leavesfly.jharness2.engine.hook.HookExecutor;
+import io.leavesfly.jharness2.engine.policy.context.CompactionStrategy;
+import io.leavesfly.jharness2.engine.ext.hook.HookEvent;
+import io.leavesfly.jharness2.engine.ext.hook.HookExecutor;
 import io.leavesfly.jharness2.engine.stream.AssistantTurnComplete;
 import io.leavesfly.jharness2.engine.stream.StreamEvent;
 import io.leavesfly.jharness2.engine.stream.UsageReport;
 import io.leavesfly.jharness2.engine.tool.ToolRegistry;
+import io.leavesfly.jharness2.engine.llm.CostTracker;
+import io.leavesfly.jharness2.engine.llm.LlmClient;
+import io.leavesfly.jharness2.engine.llm.LlmResponse;
+import io.leavesfly.jharness2.engine.message.ConversationMessage;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;

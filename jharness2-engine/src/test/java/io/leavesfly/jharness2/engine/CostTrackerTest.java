@@ -1,5 +1,6 @@
 package io.leavesfly.jharness2.engine;
 
+import io.leavesfly.jharness2.engine.llm.CostTracker;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 

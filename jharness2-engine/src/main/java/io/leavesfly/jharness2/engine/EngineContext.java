@@ -1,10 +1,10 @@
 package io.leavesfly.jharness2.engine;
 
-import io.leavesfly.jharness2.engine.agent.AgentOrchestrator;
-import io.leavesfly.jharness2.engine.cron.CronScheduler;
-import io.leavesfly.jharness2.engine.mcp.McpManager;
-import io.leavesfly.jharness2.engine.skill.SkillRegistry;
-import io.leavesfly.jharness2.engine.task.BackgroundTaskManager;
+import io.leavesfly.jharness2.engine.ext.agent.AgentOrchestrator;
+import io.leavesfly.jharness2.engine.ext.cron.CronScheduler;
+import io.leavesfly.jharness2.engine.ext.mcp.McpManager;
+import io.leavesfly.jharness2.engine.ext.skill.SkillRegistry;
+import io.leavesfly.jharness2.engine.ext.task.BackgroundTaskManager;
 
 import java.util.Map;
 import java.util.Optional;

@@ -2,9 +2,13 @@ package io.leavesfly.jharness2.engine.tool;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import io.leavesfly.jharness2.engine.model.ToolResultBlock;
-import io.leavesfly.jharness2.engine.model.ToolUseBlock;
-import io.leavesfly.jharness2.engine.permission.PermissionChecker;
+import io.leavesfly.jharness2.engine.message.ToolResultBlock;
+import io.leavesfly.jharness2.engine.message.ToolUseBlock;
+import io.leavesfly.jharness2.engine.policy.access.PermissionChecker;
+import io.leavesfly.jharness2.engine.policy.resilience.ErrorRecoveryStrategy;
+import io.leavesfly.jharness2.engine.policy.resilience.RecoveryAction;
+import io.leavesfly.jharness2.engine.policy.resilience.RecoveryDecision;
+import io.leavesfly.jharness2.engine.policy.resilience.ToolExecutionPolicy;
 import io.leavesfly.jharness2.engine.stream.StreamEvent;
 import io.leavesfly.jharness2.engine.stream.ToolExecutionCompleted;
 import io.leavesfly.jharness2.engine.stream.ToolExecutionStarted;
@@ -32,6 +36,8 @@ public final class ToolCallDispatcher {
 
     private final ToolRegistry toolRegistry;
     private volatile PermissionChecker permissionChecker;
+    private volatile ErrorRecoveryStrategy recoveryStrategy;
+    private volatile ToolExecutionPolicy executionPolicy;
     private final Supplier<Path> cwdSupplier;
 
     public ToolCallDispatcher(ToolRegistry toolRegistry, PermissionChecker permissionChecker, Supplier<Path> cwdSupplier) {
@@ -42,6 +48,14 @@ public final class ToolCallDispatcher {
 
     public void setPermissionChecker(PermissionChecker permissionChecker) {
         this.permissionChecker = permissionChecker;
+    }
+
+    public void setRecoveryStrategy(ErrorRecoveryStrategy recoveryStrategy) {
+        this.recoveryStrategy = recoveryStrategy;
+    }
+
+    public void setExecutionPolicy(ToolExecutionPolicy executionPolicy) {
+        this.executionPolicy = executionPolicy;
     }
 
     /**
@@ -56,18 +70,59 @@ public final class ToolCallDispatcher {
 
     private List<ToolResultBlock> executeSingle(ToolUseBlock toolUse, Consumer<StreamEvent> eventConsumer) {
         eventConsumer.accept(new ToolExecutionStarted(toolUse.getName(), toolUse.getId(), toolUse.getInput() != null ? toolUse.getInput().toString() : ""));
-        ToolResult result;
-        try {
-            result = executeToolCall(toolUse).join();
-        } catch (CancellationException ce) {
-            result = ToolResult.error("工具执行被取消");
-        } catch (CompletionException ex) {
-            Throwable cause = ex.getCause() != null ? ex.getCause() : ex;
-            logger.error("Tool execution error: {}", toolUse.getName(), cause);
-            result = ToolResult.error("工具执行异常: " + cause.getMessage());
-        }
+
+        ToolResult result = executeWithRecovery(toolUse);
+
         eventConsumer.accept(new ToolExecutionCompleted(toolUse.getName(), toolUse.getId(), result.getOutput(), result.isError()));
         return List.of(new ToolResultBlock(toolUse.getId(), result.getOutput(), result.isError()));
+    }
+
+    private ToolResult executeWithRecovery(ToolUseBlock toolUse) {
+        int attempt = 0;
+        while (true) {
+            attempt++;
+            ToolResult result;
+            try {
+                result = executeToolCall(toolUse).join();
+            } catch (CancellationException ce) {
+                result = ToolResult.error("工具执行被取消");
+            } catch (CompletionException ex) {
+                Throwable cause = ex.getCause() != null ? ex.getCause() : ex;
+                logger.error("Tool execution error: {}", toolUse.getName(), cause);
+                result = ToolResult.error("工具执行异常: " + cause.getMessage());
+            }
+
+            // 成功则直接返回
+            if (!result.isError()) {
+                return result;
+            }
+
+            // 无恢复策略时直接返回错误
+            if (recoveryStrategy == null) {
+                return result;
+            }
+
+            // 执行恢复策略
+            RecoveryDecision decision = recoveryStrategy.onToolError(toolUse.getName(), result.getOutput(), attempt);
+            switch (decision.action()) {
+                case RETRY -> {
+                    logger.info("Recovery: retrying tool '{}' (attempt {})", toolUse.getName(), attempt + 1);
+                    continue;
+                }
+                case SKIP -> {
+                    logger.info("Recovery: skipping tool '{}': {}", toolUse.getName(), decision.message());
+                    return ToolResult.success("[Skipped] " + decision.message());
+                }
+                case ABORT -> {
+                    logger.warn("Recovery: aborting due to tool '{}' failure: {}", toolUse.getName(), decision.message());
+                    return ToolResult.error("[Aborted] " + decision.message());
+                }
+                default -> {
+                    // ESCALATE / FALLBACK: 返回错误让 LLM 决策
+                    return result;
+                }
+            }
+        }
     }
 
     private List<ToolResultBlock> executeParallel(List<ToolUseBlock> toolUses, Consumer<StreamEvent> eventConsumer) {
@@ -81,11 +136,21 @@ public final class ToolCallDispatcher {
             futures.add(future);
         }
 
+        // 使用策略中最大的单工具超时作为并行超时上限
+        long timeoutMinutes = PARALLEL_TIMEOUT_MINUTES;
+        if (executionPolicy != null) {
+            long maxToolTimeoutMs = toolUses.stream()
+                    .mapToLong(t -> executionPolicy.getTimeout(t.getName()).toMillis())
+                    .max()
+                    .orElse(PARALLEL_TIMEOUT_MINUTES * 60 * 1000);
+            timeoutMinutes = Math.max(1, (maxToolTimeoutMs / 60000) + 1);
+        }
+
         try {
             CompletableFuture.allOf(futures.toArray(new CompletableFuture[0]))
-                    .get(PARALLEL_TIMEOUT_MINUTES, TimeUnit.MINUTES);
+                    .get(timeoutMinutes, TimeUnit.MINUTES);
         } catch (TimeoutException e) {
-            logger.error("Tool parallel execution timeout ({}min)", PARALLEL_TIMEOUT_MINUTES);
+            logger.error("Tool parallel execution timeout ({}min)", timeoutMinutes);
             futures.forEach(f -> f.cancel(true));
         } catch (ExecutionException | InterruptedException e) {
             logger.error("Tool parallel execution error", e);

@@ -61,7 +61,7 @@ public class LocalEngineRegistry implements UserEngineRegistry {
         AtomicInteger count = userEngineCount.computeIfAbsent(
                 context.getUserId(), k -> new AtomicInteger(0));
         if (count.get() >= engineConfig.getMaxEnginesPerUser()) {
-            throw new EngineLimitExceededException(
+            throw new EngineLimitException(
                     "User " + context.getUserId() + " has reached max engine limit: "
                             + engineConfig.getMaxEnginesPerUser());
         }

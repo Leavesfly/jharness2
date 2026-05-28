@@ -2,10 +2,10 @@ package io.leavesfly.jharness2.engine.tool;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import io.leavesfly.jharness2.engine.model.ToolResultBlock;
-import io.leavesfly.jharness2.engine.model.ToolUseBlock;
-import io.leavesfly.jharness2.engine.permission.PermissionChecker;
-import io.leavesfly.jharness2.engine.permission.PermissionMode;
+import io.leavesfly.jharness2.engine.message.ToolResultBlock;
+import io.leavesfly.jharness2.engine.message.ToolUseBlock;
+import io.leavesfly.jharness2.engine.policy.access.PermissionChecker;
+import io.leavesfly.jharness2.engine.policy.access.PermissionMode;
 import io.leavesfly.jharness2.engine.stream.StreamEvent;
 import io.leavesfly.jharness2.engine.stream.ToolExecutionCompleted;
 import io.leavesfly.jharness2.engine.stream.ToolExecutionStarted;

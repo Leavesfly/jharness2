@@ -49,6 +49,9 @@ public abstract class BaseTool<T> {
 
     /**
      * 基于 InputClass 的字段反射生成 JSON Schema。
+     * <p>
+     * 优先读取 {@link ToolParam} 注解获取 description、enum、required 等元信息；
+     * 若无注解则回退到基于 @NotNull/@NotBlank 的必填检测。
      */
     protected Map<String, Object> buildParametersSchema() {
         Map<String, Object> schema = new LinkedHashMap<>();
@@ -60,20 +63,45 @@ public abstract class BaseTool<T> {
         Class<T> inputClass = getInputClass();
         if (inputClass != null) {
             for (Field field : inputClass.getDeclaredFields()) {
+                if (java.lang.reflect.Modifier.isStatic(field.getModifiers())) continue;
+
                 String fieldName = field.getName();
                 Map<String, Object> fieldSchema = new LinkedHashMap<>();
                 fieldSchema.put("type", mapJavaTypeToJsonType(field.getType()));
 
+                // 数组/列表的 items 声明
                 if (field.getType().isArray()) {
                     fieldSchema.put("items", Map.of("type", mapJavaTypeToJsonType(field.getType().getComponentType())));
                 } else if (List.class.isAssignableFrom(field.getType())) {
                     fieldSchema.put("items", Map.of("type", "string"));
                 }
 
+                // 读取 @ToolParam 注解
+                ToolParam toolParam = field.getAnnotation(ToolParam.class);
+                if (toolParam != null) {
+                    if (!toolParam.description().isEmpty()) {
+                        fieldSchema.put("description", toolParam.description());
+                    }
+                    if (toolParam.enumValues().length > 0) {
+                        fieldSchema.put("enum", List.of(toolParam.enumValues()));
+                    }
+                    if (!toolParam.defaultValue().isEmpty()) {
+                        fieldSchema.put("default", toolParam.defaultValue());
+                    }
+                    if (toolParam.required()) {
+                        required.add(fieldName);
+                    }
+                }
+
                 properties.put(fieldName, fieldSchema);
 
-                if (isRequiredField(field)) {
-                    required.add(fieldName);
+                // 若 @ToolParam 未标记 required，回退检测 @NotNull/@NotBlank
+                if (toolParam == null || !toolParam.required()) {
+                    if (isRequiredByValidationAnnotation(field)) {
+                        if (!required.contains(fieldName)) {
+                            required.add(fieldName);
+                        }
+                    }
                 }
             }
         }
@@ -86,7 +114,7 @@ public abstract class BaseTool<T> {
         return schema;
     }
 
-    private boolean isRequiredField(Field field) {
+    private boolean isRequiredByValidationAnnotation(Field field) {
         for (Annotation annotation : field.getAnnotations()) {
             String name = annotation.annotationType().getSimpleName();
             if ("NotBlank".equals(name) || "NotNull".equals(name) || "NotEmpty".equals(name)) {

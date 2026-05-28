@@ -33,18 +33,12 @@
             <artifactId>caffeine</artifactId>
         </dependency>
 
-        <!-- Redis（分布式引擎状态外置，optional，仅在 distributed.enabled=true 时使用） -->
-        <dependency>
-            <groupId>org.springframework.boot</groupId>
-            <artifactId>spring-boot-starter-data-redis</artifactId>
-            <optional>true</optional>
-        </dependency>
 
-        <!-- Aliyun OSS（workspace 对象存储，optional，仅在 storage-type=oss 时使用） -->
+
+        <!-- Micrometer（Metrics 度量，optional，仅在 actuator 可用时生效） -->
         <dependency>
-            <groupId>com.aliyun.oss</groupId>
-            <artifactId>aliyun-sdk-oss</artifactId>
-            <version>3.17.4</version>
+            <groupId>io.micrometer</groupId>
+            <artifactId>micrometer-core</artifactId>
             <optional>true</optional>
         </dependency>
 

@@ -1,6 +1,6 @@
 package io.leavesfly.jharness2.engine.tool.builtin.meta;
 
-import io.leavesfly.jharness2.engine.skill.SkillRegistry;
+import io.leavesfly.jharness2.engine.ext.skill.SkillRegistry;
 import io.leavesfly.jharness2.engine.tool.BaseTool;
 import io.leavesfly.jharness2.engine.tool.ToolExecutionContext;
 import io.leavesfly.jharness2.engine.tool.ToolResult;

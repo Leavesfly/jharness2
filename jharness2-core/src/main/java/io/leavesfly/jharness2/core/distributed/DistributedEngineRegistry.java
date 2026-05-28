@@ -103,7 +103,7 @@ public class DistributedEngineRegistry implements UserEngineRegistry {
         // 3. 全新创建（检查分布式引擎计数）
         int userCount = stateStore.countByUser(context.getUserId());
         if (userCount >= engineConfig.getMaxEnginesPerUser()) {
-            throw new EngineLimitExceededException(
+            throw new EngineLimitException(
                     "User " + context.getUserId() + " has reached max engine limit (distributed): "
                             + engineConfig.getMaxEnginesPerUser());
         }

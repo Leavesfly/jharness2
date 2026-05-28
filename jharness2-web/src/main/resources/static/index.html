@@ -88,6 +88,65 @@
         .empty-state h3 { font-size: 20px; margin-bottom: 8px; color: var(--primary); }
         .empty-state p { font-size: 14px; }
 
+        /* Nav Tabs */
+        .nav-tabs { display: flex; border-bottom: 1px solid var(--border); background: var(--surface); padding: 0 12px; }
+        .nav-tab { padding: 10px 16px; font-size: 13px; color: var(--text-muted); cursor: pointer; border-bottom: 2px solid transparent; transition: all .2s; white-space: nowrap; }
+        .nav-tab:hover { color: var(--text); }
+        .nav-tab.active { color: var(--primary); border-bottom-color: var(--primary); font-weight: 600; }
+
+        /* Panels */
+        .panel { display: none; flex: 1; overflow-y: auto; padding: 24px; }
+        .panel.active { display: block; }
+        .panel-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
+        .panel-header h3 { font-size: 18px; color: var(--primary); }
+        .panel-header .panel-actions { display: flex; gap: 8px; }
+
+        /* Stats Cards */
+        .stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 16px; margin-bottom: 24px; }
+        .stat-card { background: var(--surface2); border-radius: var(--radius); padding: 20px; text-align: center; }
+        .stat-card .stat-value { font-size: 28px; font-weight: 700; color: var(--primary); margin-bottom: 4px; }
+        .stat-card .stat-label { font-size: 12px; color: var(--text-muted); }
+
+        /* Data Table */
+        .data-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+        .data-table th { text-align: left; padding: 10px 12px; color: var(--text-muted); border-bottom: 1px solid var(--border); font-weight: 500; }
+        .data-table td { padding: 10px 12px; border-bottom: 1px solid var(--border); }
+        .data-table tr:hover td { background: var(--surface2); }
+
+        /* Badges */
+        .badge { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 11px; font-weight: 600; }
+        .badge-success { background: rgba(102,187,106,.15); color: var(--success); }
+        .badge-danger { background: rgba(239,83,80,.15); color: var(--danger); }
+        .badge-warning { background: rgba(255,183,77,.15); color: #ffb74d; }
+        .badge-info { background: rgba(79,195,247,.15); color: var(--primary); }
+        .badge-muted { background: rgba(158,158,158,.15); color: var(--text-muted); }
+
+        /* Memory Cards */
+        .memory-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 12px; }
+        .memory-card { background: var(--surface2); border-radius: var(--radius); padding: 16px; border-left: 3px solid var(--primary); }
+        .memory-card .memory-title { font-weight: 600; font-size: 14px; margin-bottom: 6px; }
+        .memory-card .memory-content { font-size: 12px; color: var(--text-muted); line-height: 1.5; max-height: 60px; overflow: hidden; }
+        .memory-card .memory-meta { margin-top: 8px; display: flex; justify-content: space-between; align-items: center; }
+        .memory-card .memory-meta .category { font-size: 11px; color: var(--primary); }
+        .memory-card .memory-meta .del-link { font-size: 11px; color: var(--danger); cursor: pointer; opacity: 0; transition: opacity .2s; }
+        .memory-card:hover .memory-meta .del-link { opacity: 1; }
+
+        /* Search bar */
+        .search-bar { display: flex; gap: 8px; margin-bottom: 16px; }
+        .search-bar input { flex: 1; }
+        .search-bar button { background: var(--primary-dark); color: #fff; padding: 8px 16px; }
+        .search-bar select { background: var(--surface); color: var(--text); border: 1px solid var(--border); border-radius: 6px; padding: 8px 12px; font-size: 13px; }
+
+        /* Task status colors */
+        .status-running { color: var(--primary); }
+        .status-completed { color: var(--success); }
+        .status-failed { color: var(--danger); }
+        .status-cancelled { color: var(--text-muted); }
+        .status-pending { color: #ffb74d; }
+
+        /* Loading */
+        .loading-spinner { text-align: center; padding: 40px; color: var(--text-muted); font-size: 14px; }
+
         /* Onboarding */
         #onboarding-view { display: none; align-items: center; justify-content: center; height: 100vh; }
         .onboarding-card { background: var(--surface); padding: 48px; border-radius: var(--radius); width: 520px; box-shadow: 0 8px 32px rgba(0,0,0,.4); }
@@ -199,21 +258,104 @@
             </div>
         </aside>
         <main class="chat-area">
-            <div class="chat-header">
-                <span class="session-title" id="chat-title">新对话</span>
-                <span class="model-badge" id="chat-model">-</span>
+            <!-- Navigation Tabs -->
+            <div class="nav-tabs">
+                <div class="nav-tab active" data-panel="chat" onclick="switchPanel('chat')">💬 对话</div>
+                <div class="nav-tab" data-panel="usage" onclick="switchPanel('usage')">📊 用量</div>
+                <div class="nav-tab" data-panel="audit" onclick="switchPanel('audit')">🛡️ 审计</div>
+                <div class="nav-tab" data-panel="tasks" onclick="switchPanel('tasks')">⚙️ 任务</div>
+                <div class="nav-tab" data-panel="memory" onclick="switchPanel('memory')">🧠 记忆</div>
             </div>
-            <div class="messages" id="messages">
-                <div class="empty-state" id="empty-state">
-                    <h3>🤖 JHarness2 AI Agent</h3>
-                    <p>开始新的对话，我可以帮你完成各种任务</p>
+
+            <!-- Chat Panel -->
+            <div id="panel-chat" class="panel active" style="display:flex;flex-direction:column;padding:0;">
+                <div class="chat-header">
+                    <span class="session-title" id="chat-title">新对话</span>
+                    <span class="model-badge" id="chat-model">-</span>
+                </div>
+                <div class="messages" id="messages">
+                    <div class="empty-state" id="empty-state">
+                        <h3>🤖 JHarness2 AI Agent</h3>
+                        <p>开始新的对话，我可以帮你完成各种任务</p>
+                    </div>
+                </div>
+                <div class="input-area">
+                    <div class="input-row">
+                        <textarea id="msg-input" placeholder="输入消息... (Enter 发送, Shift+Enter 换行)" rows="1"></textarea>
+                        <button class="btn-send" id="btn-send" onclick="sendMessage()">发送</button>
+                        <button class="btn-cancel" id="btn-cancel" onclick="cancelChat()">停止</button>
+                    </div>
                 </div>
             </div>
-            <div class="input-area">
-                <div class="input-row">
-                    <textarea id="msg-input" placeholder="输入消息... (Enter 发送, Shift+Enter 换行)" rows="1"></textarea>
-                    <button class="btn-send" id="btn-send" onclick="sendMessage()">发送</button>
-                    <button class="btn-cancel" id="btn-cancel" onclick="cancelChat()">停止</button>
+
+            <!-- Usage Panel -->
+            <div id="panel-usage" class="panel">
+                <div class="panel-header">
+                    <h3>📊 用量统计</h3>
+                    <div class="panel-actions">
+                        <button onclick="loadUsageData()" style="background:var(--surface2);color:var(--text);font-size:12px;">🔄 刷新</button>
+                    </div>
+                </div>
+                <div class="stats-grid" id="usage-stats">
+                    <div class="stat-card"><div class="stat-value" id="usage-today">-</div><div class="stat-label">今日 Token</div></div>
+                    <div class="stat-card"><div class="stat-value" id="usage-month">-</div><div class="stat-label">本月 Token</div></div>
+                    <div class="stat-card"><div class="stat-value" id="usage-requests">-</div><div class="stat-label">本月请求数</div></div>
+                </div>
+                <h4 style="margin-bottom:12px;color:var(--text-muted);font-size:14px;">模型用量明细</h4>
+                <table class="data-table" id="usage-model-table">
+                    <thead><tr><th>模型</th><th>输入 Token</th><th>输出 Token</th><th>请求数</th></tr></thead>
+                    <tbody id="usage-model-body"><tr><td colspan="4" style="text-align:center;color:var(--text-muted);">加载中...</td></tr></tbody>
+                </table>
+            </div>
+
+            <!-- Audit Panel -->
+            <div id="panel-audit" class="panel">
+                <div class="panel-header">
+                    <h3>🛡️ 审计日志</h3>
+                    <div class="panel-actions">
+                        <select id="audit-days" onchange="loadAuditData()" style="background:var(--surface2);color:var(--text);border:1px solid var(--border);border-radius:6px;padding:6px 10px;font-size:12px;">
+                            <option value="1">最近1天</option>
+                            <option value="7" selected>最近7天</option>
+                            <option value="30">最近30天</option>
+                        </select>
+                        <button onclick="loadAuditData()" style="background:var(--surface2);color:var(--text);font-size:12px;">🔄 刷新</button>
+                    </div>
+                </div>
+                <table class="data-table">
+                    <thead><tr><th>时间</th><th>工具</th><th>状态</th><th>风险</th><th>耗时</th></tr></thead>
+                    <tbody id="audit-body"><tr><td colspan="5" style="text-align:center;color:var(--text-muted);">加载中...</td></tr></tbody>
+                </table>
+            </div>
+
+            <!-- Tasks Panel -->
+            <div id="panel-tasks" class="panel">
+                <div class="panel-header">
+                    <h3>⚙️ 后台任务</h3>
+                    <div class="panel-actions">
+                        <button onclick="loadTasksData()" style="background:var(--surface2);color:var(--text);font-size:12px;">🔄 刷新</button>
+                    </div>
+                </div>
+                <table class="data-table">
+                    <thead><tr><th>任务ID</th><th>类型</th><th>状态</th><th>重试</th><th>创建时间</th><th>操作</th></tr></thead>
+                    <tbody id="tasks-body"><tr><td colspan="6" style="text-align:center;color:var(--text-muted);">加载中...</td></tr></tbody>
+                </table>
+            </div>
+
+            <!-- Memory Panel -->
+            <div id="panel-memory" class="panel">
+                <div class="panel-header">
+                    <h3>🧠 记忆管理</h3>
+                </div>
+                <div class="search-bar">
+                    <input type="text" id="memory-search-input" placeholder="搜索记忆内容...">
+                    <select id="memory-search-mode">
+                        <option value="keyword">关键词</option>
+                        <option value="vector">语义搜索</option>
+                    </select>
+                    <button onclick="searchMemories()">搜索</button>
+                </div>
+                <div class="memory-grid" id="memory-grid">
+                    <div class="loading-spinner">加载中...</div>
                 </div>
             </div>
         </main>
@@ -721,6 +863,229 @@ function formatTime(isoStr) {
     }
     return d.toLocaleDateString('zh-CN', { month: 'short', day: 'numeric' });
 }
+
+function formatDateTime(isoStr) {
+    if (!isoStr) return '-';
+    const d = new Date(isoStr);
+    return d.toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit' });
+}
+
+function formatNumber(num) {
+    if (num == null) return '-';
+    if (num >= 1000000) return (num / 1000000).toFixed(1) + 'M';
+    if (num >= 1000) return (num / 1000).toFixed(1) + 'K';
+    return String(num);
+}
+
+// === Panel Navigation ===
+let currentPanel = 'chat';
+
+function switchPanel(panelName) {
+    currentPanel = panelName;
+    document.querySelectorAll('.nav-tab').forEach(t => t.classList.toggle('active', t.dataset.panel === panelName));
+    document.querySelectorAll('.panel').forEach(p => {
+        const isActive = p.id === 'panel-' + panelName;
+        p.classList.toggle('active', isActive);
+        if (p.id === 'panel-chat') {
+            p.style.display = isActive ? 'flex' : 'none';
+        } else {
+            p.style.display = isActive ? 'block' : 'none';
+        }
+    });
+    // 切换到面板时自动加载数据
+    if (panelName === 'usage') loadUsageData();
+    else if (panelName === 'audit') loadAuditData();
+    else if (panelName === 'tasks') loadTasksData();
+    else if (panelName === 'memory') loadMemoryData();
+}
+
+// === Usage Panel ===
+async function loadUsageData() {
+    const now = new Date();
+    const year = now.getFullYear();
+    const month = now.getMonth() + 1;
+    try {
+        const [todayRes, monthlyRes, summaryRes] = await Promise.all([
+            apiFetch('/api/admin/usage/today'),
+            apiFetch('/api/admin/usage/monthly?year=' + year + '&month=' + month),
+            apiFetch('/api/admin/usage/summary?year=' + year + '&month=' + month)
+        ]);
+        const todayData = await todayRes.json();
+        const monthlyData = await monthlyRes.json();
+        const summaryData = await summaryRes.json();
+
+        document.getElementById('usage-today').textContent = formatNumber(todayData.totalTokens || 0);
+        document.getElementById('usage-month').textContent = formatNumber(monthlyData.totalTokens || 0);
+
+        const models = summaryData.models || [];
+        const totalRequests = models.reduce((sum, m) => sum + (m.requestCount || 0), 0);
+        document.getElementById('usage-requests').textContent = formatNumber(totalRequests);
+
+        const tbody = document.getElementById('usage-model-body');
+        if (models.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="4" style="text-align:center;color:var(--text-muted);">暂无数据</td></tr>';
+        } else {
+            tbody.innerHTML = models.map(m => `
+                <tr>
+                    <td><span class="badge badge-info">${escapeHtml(m.model || '-')}</span></td>
+                    <td>${formatNumber(m.inputTokens || 0)}</td>
+                    <td>${formatNumber(m.outputTokens || 0)}</td>
+                    <td>${m.requestCount || 0}</td>
+                </tr>
+            `).join('');
+        }
+    } catch (e) {
+        console.error('Load usage failed', e);
+        document.getElementById('usage-today').textContent = '⚠️';
+    }
+}
+
+// === Audit Panel ===
+async function loadAuditData() {
+    const days = document.getElementById('audit-days').value || 7;
+    try {
+        const res = await apiFetch('/api/admin/audit/recent?days=' + days + '&limit=100');
+        const data = await res.json();
+        const entries = data.entries || [];
+        const tbody = document.getElementById('audit-body');
+        if (entries.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:var(--text-muted);">暂无审计日志</td></tr>';
+            return;
+        }
+        tbody.innerHTML = entries.map(e => `
+            <tr>
+                <td>${formatDateTime(e.executedAt)}</td>
+                <td><code>${escapeHtml(e.toolName || '-')}</code></td>
+                <td><span class="badge ${e.status === 'SUCCESS' ? 'badge-success' : 'badge-danger'}">${e.status || '-'}</span></td>
+                <td><span class="badge ${riskBadgeClass(e.riskLevel)}">${e.riskLevel || '-'}</span></td>
+                <td>${e.durationMs != null ? e.durationMs + 'ms' : '-'}</td>
+            </tr>
+        `).join('');
+    } catch (e) {
+        console.error('Load audit failed', e);
+        document.getElementById('audit-body').innerHTML = '<tr><td colspan="5" style="text-align:center;color:var(--danger);">加载失败</td></tr>';
+    }
+}
+
+function riskBadgeClass(level) {
+    if (level === 'HIGH') return 'badge-danger';
+    if (level === 'MEDIUM') return 'badge-warning';
+    return 'badge-muted';
+}
+
+// === Tasks Panel ===
+async function loadTasksData() {
+    try {
+        const res = await apiFetch('/api/admin/tasks/active');
+        const data = await res.json();
+        const tasks = data.tasks || [];
+        const tbody = document.getElementById('tasks-body');
+        if (tasks.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:var(--text-muted);">暂无活跃任务</td></tr>';
+            return;
+        }
+        tbody.innerHTML = tasks.map(t => `
+            <tr>
+                <td><code>${escapeHtml(t.taskId || '-')}</code></td>
+                <td><span class="badge badge-info">${escapeHtml(t.type || '-')}</span></td>
+                <td><span class="status-${(t.status || '').toLowerCase()}">${t.status || '-'}</span></td>
+                <td>${t.retryCount || 0}/${t.maxRetries || 3}</td>
+                <td>${formatDateTime(t.createdAt)}</td>
+                <td>${t.status === 'RUNNING' || t.status === 'PENDING' ? '<button onclick="cancelTask(\'' + t.taskId + '\')" style="background:var(--danger);color:#fff;font-size:11px;padding:4px 8px;">取消</button>' : '-'}</td>
+            </tr>
+        `).join('');
+    } catch (e) {
+        console.error('Load tasks failed', e);
+        document.getElementById('tasks-body').innerHTML = '<tr><td colspan="6" style="text-align:center;color:var(--danger);">加载失败</td></tr>';
+    }
+}
+
+async function cancelTask(taskId) {
+    if (!confirm('确定取消此任务？')) return;
+    try {
+        await apiFetch('/api/admin/tasks/' + taskId + '/cancel', { method: 'POST' });
+        loadTasksData();
+    } catch (e) { console.error('Cancel task failed', e); }
+}
+
+// === Memory Panel ===
+async function loadMemoryData() {
+    try {
+        const res = await apiFetch('/api/memories?project=default');
+        const data = await res.json();
+        renderMemoryGrid(data.memories || []);
+    } catch (e) {
+        console.error('Load memories failed', e);
+        document.getElementById('memory-grid').innerHTML = '<div class="loading-spinner" style="color:var(--danger);">加载失败</div>';
+    }
+}
+
+async function searchMemories() {
+    const query = document.getElementById('memory-search-input').value.trim();
+    if (!query) { loadMemoryData(); return; }
+    const mode = document.getElementById('memory-search-mode').value;
+    try {
+        const res = await apiFetch(`/api/memories/search?query=${encodeURIComponent(query)}&mode=${mode}&project=default`);
+        const data = await res.json();
+        const results = data.results || data.memories || [];
+        if (data.mode === 'vector') {
+            renderMemoryGridFromVector(results);
+        } else {
+            renderMemoryGrid(results);
+        }
+    } catch (e) {
+        console.error('Search memories failed', e);
+    }
+}
+
+function renderMemoryGrid(memories) {
+    const grid = document.getElementById('memory-grid');
+    if (!memories.length) {
+        grid.innerHTML = '<div class="loading-spinner">暂无记忆数据</div>';
+        return;
+    }
+    grid.innerHTML = memories.map(m => `
+        <div class="memory-card">
+            <div class="memory-title">${escapeHtml(m.title || '无标题')}</div>
+            <div class="memory-content">${escapeHtml(m.content || '')}</div>
+            <div class="memory-meta">
+                <span class="category">${escapeHtml(m.category || '默认')}</span>
+                <span class="del-link" onclick="deleteMemory('${escapeHtml(m.project || 'default')}','${escapeHtml(m.title || '')}')">删除</span>
+            </div>
+        </div>
+    `).join('');
+}
+
+function renderMemoryGridFromVector(results) {
+    const grid = document.getElementById('memory-grid');
+    if (!results.length) {
+        grid.innerHTML = '<div class="loading-spinner">未找到相关记忆</div>';
+        return;
+    }
+    grid.innerHTML = results.map(r => `
+        <div class="memory-card">
+            <div class="memory-title">${escapeHtml(r.memoryId || '-')}</div>
+            <div class="memory-content">${escapeHtml(r.snippet || '')}</div>
+            <div class="memory-meta">
+                <span class="category">相似度: ${(r.score * 100).toFixed(1)}%</span>
+            </div>
+        </div>
+    `).join('');
+}
+
+async function deleteMemory(project, title) {
+    if (!confirm('确定删除此记忆？')) return;
+    try {
+        await apiFetch('/api/memories/' + encodeURIComponent(project) + '/' + encodeURIComponent(title), { method: 'DELETE' });
+        loadMemoryData();
+    } catch (e) { console.error('Delete memory failed', e); }
+}
+
+// Memory search on Enter
+document.addEventListener('DOMContentLoaded', () => {
+    const memInput = document.getElementById('memory-search-input');
+    if (memInput) memInput.addEventListener('keydown', e => { if (e.key === 'Enter') searchMemories(); });
+});
 </script>
 </body>
 </html>
