@@ -15,6 +15,7 @@ import io.leavesfly.jharness2.engine.tool.builtin.shell.BashTool;
 import io.leavesfly.jharness2.engine.tool.builtin.meta.SkillTool;
 import io.leavesfly.jharness2.engine.ext.skill.SkillLoader;
 import io.leavesfly.jharness2.core.engine.EngineCustomizer;
+import io.leavesfly.jharness2.engine.ext.evolution.EvolutionEngine;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -138,5 +139,18 @@ public class DefaultEngineFactory implements EngineFactory {
         }
 
         return prompt.toString();
+    }
+
+    /**
+     * 构建包含进化经验的 system prompt（在 Customizer 执行后由外部调用增强）。
+     * <p>
+     * 注意：此方法在 EvolutionCustomizer 初始化后，由首次 submitMessage 时的
+     * ExperienceRetriever 动态注入经验段，不在此处硬编码。
+     */
+    public static String enhancePromptWithExperience(QueryEngine engine, String userId, String userMessage) {
+        if (engine.getEngineContext() == null) return "";
+        return engine.getEngineContext().getExtension(EvolutionEngine.class)
+                .map(evo -> evo.getExperiencePromptSection(userId, userMessage))
+                .orElse("");
     }
 }
