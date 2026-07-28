@@ -17,6 +17,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Consumer;
@@ -26,6 +27,15 @@ public class OpenAiClient implements LlmClient {
     private static final Logger logger = LoggerFactory.getLogger(OpenAiClient.class);
     private static final MediaType JSON_TYPE = MediaType.parse("application/json");
     private static final ObjectMapper MAPPER = new ObjectMapper();
+
+    /**
+     * 按超时参数共享 OkHttpClient。
+     * <p>
+     * 多用户服务下每个会话会创建一个引擎，若每个引擎都新建 OkHttpClient，
+     * 上百个并发会话就会堆出上百个连接池与调度线程池（单机版遗留写法）。
+     * 共享实例后连接复用、线程数与会话数解耦。
+     */
+    private static final Map<String, OkHttpClient> SHARED_CLIENTS = new ConcurrentHashMap<>();
 
     private final String baseUrl;
     private final String apiKey;
@@ -39,11 +49,17 @@ public class OpenAiClient implements LlmClient {
         this.apiKey = apiKey;
         this.model = model;
         this.maxTokens = maxTokens;
-        this.httpClient = new OkHttpClient.Builder()
+        this.httpClient = sharedClient(connectTimeoutSeconds, readTimeoutSeconds, writeTimeoutSeconds);
+    }
+
+    private static OkHttpClient sharedClient(int connectTimeoutSeconds, int readTimeoutSeconds,
+                                             int writeTimeoutSeconds) {
+        String key = connectTimeoutSeconds + ":" + readTimeoutSeconds + ":" + writeTimeoutSeconds;
+        return SHARED_CLIENTS.computeIfAbsent(key, k -> new OkHttpClient.Builder()
                 .connectTimeout(connectTimeoutSeconds, TimeUnit.SECONDS)
                 .readTimeout(readTimeoutSeconds, TimeUnit.SECONDS)
                 .writeTimeout(writeTimeoutSeconds, TimeUnit.SECONDS)
-                .build();
+                .build());
     }
 
     @Override
@@ -191,9 +207,12 @@ public class OpenAiClient implements LlmClient {
         return body;
     }
 
+    /**
+     * 引擎关闭时不能销毁共享的 HTTP 客户端：它还在服务其他用户的会话。
+     * 连接池由 OkHttp 自行按空闲时长回收。
+     */
     @Override
     public void close() {
-        httpClient.dispatcher().executorService().shutdown();
-        httpClient.connectionPool().evictAll();
+        // no-op：HTTP 客户端为进程级共享资源
     }
 }

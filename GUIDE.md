@@ -435,6 +435,12 @@ Token 默认 24 小时有效，过期后重新调用 `/api/auth/login` 获取新
 
 Agent 的文件操作被限制在用户 workspace 目录内（`./data/workspaces/<username>/`），无法访问外部文件。
 
+> **⚠️ 多租户安全说明 (TODO)**：上述限制仅对 FileRead/FileWrite 等文件工具生效。
+> Bash 工具目前直接在宿主机执行，命令黑名单（`jharness2.engine.denied-command-patterns`）
+> 只是纵深防御的一环，**不能替代 OS 级沙箱**。面向不可信用户的生产部署必须引入
+> 容器化隔离（每 session 一个受限容器 / nsjail / bubblewrap）：独立 OS 用户 +
+> 仅挂载用户工作区 + CPU/内存/进程数配额与超时限制。此项列为后续工作。
+
 ### Q: 如何增加自定义工具？
 
 参考 [wiki/09-工具与插件系统.md](wiki/09-工具与插件系统.md) 中的扩展开发部分。

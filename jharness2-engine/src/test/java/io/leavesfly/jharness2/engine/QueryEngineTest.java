@@ -18,10 +18,15 @@ import org.junit.jupiter.api.Test;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -227,6 +232,57 @@ class QueryEngineTest {
         testEngine.close();
 
         assertTrue(llmClosed.get(), "LLM client should be closed");
+    }
+
+    @Test
+    void shouldRejectConcurrentSubmitOnSameEngine() throws Exception {
+        CountDownLatch llmStarted = new CountDownLatch(1);
+        CountDownLatch llmRelease = new CountDownLatch(1);
+        llmClient.setOnCall(() -> {
+            llmStarted.countDown();
+            try {
+                llmRelease.await(5, TimeUnit.SECONDS);
+            } catch (InterruptedException ignored) {
+            }
+        });
+        llmClient.setResponse(new LlmResponse("slow answer", null, 1, 1));
+
+        CompletableFuture<Void> first = engine.submitMessage("first", event -> {});
+        assertTrue(llmStarted.await(5, TimeUnit.SECONDS), "First request should reach LLM");
+        assertTrue(engine.isBusy(), "Engine should be busy while first request in flight");
+
+        CompletableFuture<Void> second = engine.submitMessage("second", event -> {});
+        ExecutionException ex = assertThrows(ExecutionException.class,
+                () -> second.get(1, TimeUnit.SECONDS));
+        assertInstanceOf(EngineBusyException.class, ex.getCause(),
+                "Concurrent submit should fail fast with EngineBusyException");
+
+        llmRelease.countDown();
+        first.get(5, TimeUnit.SECONDS);
+        assertFalse(engine.isBusy(), "Busy flag should be released after completion");
+
+        // 互斥释放后可继续提交
+        llmClient.setOnCall(null);
+        engine.submitMessage("third", event -> {}).get(5, TimeUnit.SECONDS);
+    }
+
+    @Test
+    void shouldRunReactLoopOnInjectedExecutor() throws Exception {
+        ExecutorService custom = Executors.newSingleThreadExecutor(
+                r -> new Thread(r, "custom-agent-thread"));
+        try {
+            engine.setExecutor(custom);
+            AtomicReference<String> llmThread = new AtomicReference<>();
+            llmClient.setOnCall(() -> llmThread.set(Thread.currentThread().getName()));
+            llmClient.setResponse(new LlmResponse("ok", null, 1, 1));
+
+            engine.submitMessage("hi", event -> {}).get(5, TimeUnit.SECONDS);
+
+            assertEquals("custom-agent-thread", llmThread.get(),
+                    "ReAct loop should run on the injected executor");
+        } finally {
+            custom.shutdownNow();
+        }
     }
 
     // --- Stub Implementations ---

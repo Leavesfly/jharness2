@@ -5,6 +5,7 @@ import io.leavesfly.jharness2.storage.repository.UserRepository;
 import io.leavesfly.jharness2.web.dto.LoginRequest;
 import io.leavesfly.jharness2.web.dto.LoginResponse;
 import io.leavesfly.jharness2.web.dto.OnboardingRequest;
+import io.leavesfly.jharness2.web.dto.RegisterRequest;
 import io.leavesfly.jharness2.web.security.JwtTokenProvider;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
@@ -43,13 +44,13 @@ public class AuthController {
             return ResponseEntity.status(HttpStatus.FORBIDDEN)
                     .body(Map.of("error", "Account is disabled"));
         }
-        String token = tokenProvider.generateToken(user.getUsername());
+        String token = tokenProvider.generateToken(user.getUsername(), user.getRole());
         return ResponseEntity.ok(new LoginResponse(token, user.getUsername(),
                 tokenProvider.getExpirationMs() / 1000, user.isOnboardingCompleted()));
     }
 
     @PostMapping("/register")
-    public ResponseEntity<?> register(@Valid @RequestBody LoginRequest request) {
+    public ResponseEntity<?> register(@Valid @RequestBody RegisterRequest request) {
         if (userRepository.existsByUsername(request.getUsername())) {
             return ResponseEntity.status(HttpStatus.CONFLICT)
                     .body(Map.of("error", "Username already exists"));
@@ -65,7 +66,7 @@ public class AuthController {
         user.setUpdatedAt(now);
         userRepository.save(user);
 
-        String token = tokenProvider.generateToken(user.getUsername());
+        String token = tokenProvider.generateToken(user.getUsername(), user.getRole());
         return ResponseEntity.status(HttpStatus.CREATED)
                 .body(new LoginResponse(token, user.getUsername(),
                         tokenProvider.getExpirationMs() / 1000, false));

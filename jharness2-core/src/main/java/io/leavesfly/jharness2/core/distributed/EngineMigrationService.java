@@ -59,18 +59,16 @@ public class EngineMigrationService {
         logger.info("Node drain initiated, stopping acceptance of new requests");
 
         return CompletableFuture.supplyAsync(() -> {
-            List<String> migratedEngines = new ArrayList<>();
-            List<String> failedEngines = new ArrayList<>();
+            int before = (int) registry.activeEngineCount();
+            // 等活跃请求完成 -> 写回最新状态 -> 让渡所有权，使其他节点可接管
+            List<String> migrated = registry.releaseAllForMigration();
+            int failed = Math.max(0, before - migrated.size());
+            List<String> failedEngines = failed > 0
+                    ? List.of(failed + " engine(s) failed to migrate, see logs")
+                    : List.of();
 
-            // 同步所有状态到 Redis 并释放所有权
-            registry.syncAllStates();
-
-            // 对每个引擎执行优雅关闭
-            // 注意：这里我们不直接关闭引擎，而是释放所有权让其他节点接管
-            logger.info("Drain completed: migrated={}, failed={}",
-                    migratedEngines.size(), failedEngines.size());
-
-            return new MigrationReport(migratedEngines, failedEngines);
+            logger.info("Drain completed: migrated={}, failed={}", migrated.size(), failed);
+            return new MigrationReport(migrated, failedEngines);
         });
     }
 

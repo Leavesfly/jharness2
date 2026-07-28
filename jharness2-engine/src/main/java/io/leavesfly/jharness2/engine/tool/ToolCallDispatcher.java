@@ -38,6 +38,8 @@ public final class ToolCallDispatcher {
     private volatile PermissionChecker permissionChecker;
     private volatile ErrorRecoveryStrategy recoveryStrategy;
     private volatile ToolExecutionPolicy executionPolicy;
+    /** 工具执行器（由外部注入有界线程池，未注入时回退 commonPool 保持兼容） */
+    private volatile Executor toolExecutor;
     private final Supplier<Path> cwdSupplier;
 
     public ToolCallDispatcher(ToolRegistry toolRegistry, PermissionChecker permissionChecker, Supplier<Path> cwdSupplier) {
@@ -56,6 +58,15 @@ public final class ToolCallDispatcher {
 
     public void setExecutionPolicy(ToolExecutionPolicy executionPolicy) {
         this.executionPolicy = executionPolicy;
+    }
+
+    public void setToolExecutor(Executor toolExecutor) {
+        this.toolExecutor = toolExecutor;
+    }
+
+    private Executor toolExecutorOrDefault() {
+        Executor e = this.toolExecutor;
+        return e != null ? e : ForkJoinPool.commonPool();
     }
 
     /**
@@ -193,6 +204,10 @@ public final class ToolCallDispatcher {
                 if (permissionChecker != null) {
                     String filePath = extractField(toolUse.getInput(), "file_path", "path");
                     String command = extractField(toolUse.getInput(), "command");
+                    // 相对路径按引擎工作目录解析，否则会退化成按进程 cwd 判定，导致隔离规则失效
+                    if (filePath != null && !filePath.isBlank()) {
+                        filePath = resolveAgainstCwd(filePath);
+                    }
                     if (!permissionChecker.isAllowed(tool.getName(), tool.isReadOnly(input), filePath, command)) {
                         return ToolResult.error("权限拒绝: 操作不被允许");
                     }
@@ -204,7 +219,7 @@ public final class ToolCallDispatcher {
                 logger.error("Tool execution failed: {}", toolUse.getName(), e);
                 return ToolResult.error("工具执行失败: " + e.getMessage());
             }
-        });
+        }, toolExecutorOrDefault());
     }
 
     private static String extractField(JsonNode input, String... fieldNames) {
@@ -213,5 +228,15 @@ public final class ToolCallDispatcher {
             if (input.has(name)) return input.get(name).asText();
         }
         return null;
+    }
+
+    private String resolveAgainstCwd(String filePath) {
+        try {
+            Path cwd = cwdSupplier.get();
+            if (cwd == null) return filePath;
+            return cwd.resolve(filePath).toAbsolutePath().normalize().toString();
+        } catch (Exception e) {
+            return filePath;
+        }
     }
 }

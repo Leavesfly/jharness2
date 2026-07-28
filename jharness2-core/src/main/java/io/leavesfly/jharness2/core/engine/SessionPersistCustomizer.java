@@ -35,7 +35,8 @@ public class SessionPersistCustomizer implements EngineCustomizer {
                 sessionStorageService.saveSession(userId, sessionId, model,
                         messages, inputTokens, outputTokens);
             } catch (Exception e) {
-                logger.debug("Auto-save session failed (ignored): user={}, session={}, error={}",
+                // 落库失败 = 驱逐/重启后丢消息，升级为 warn 保证可观测
+                logger.warn("Auto-save session failed (history may be lost): user={}, session={}, error={}",
                         userId, sessionId, e.getMessage());
             }
         });

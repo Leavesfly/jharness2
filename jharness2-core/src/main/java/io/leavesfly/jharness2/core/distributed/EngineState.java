@@ -14,6 +14,10 @@ public class EngineState {
     private String sessionId;
     private String model;
     private String baseUrl;
+    /**
+     * 仅为兼容历史序列化数据保留；快照不再写入该字段，
+     * 避免用户 apiKey 以明文形式存在共享存储中。
+     */
     private String apiKey;
     private String workspacePath;
     private List<ConversationMessage> messages;
@@ -65,7 +69,9 @@ public class EngineState {
         state.setSessionId(context.getSessionId());
         state.setModel(context.getModel());
         state.setBaseUrl(context.getBaseUrl());
-        state.setApiKey(context.getApiKey());
+        // 不将 apiKey 写入共享存储：凭据不应以明文形式落到 Redis，
+        // 跨节点恢复时由请求上下文/默认配置提供
+        state.setApiKey(null);
         state.setWorkspacePath(context.getWorkspace() != null ? context.getWorkspace().toString() : null);
         state.setMessages(engine.getMessages());
         state.setInputTokens(engine.getCostTracker().getInputTokens());

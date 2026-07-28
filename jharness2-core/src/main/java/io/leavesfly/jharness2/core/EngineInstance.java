@@ -7,6 +7,8 @@ import org.slf4j.LoggerFactory;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.Executor;
+import java.util.concurrent.ForkJoinPool;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
@@ -25,6 +27,8 @@ public class EngineInstance {
     private final AtomicReference<Instant> lastAccessedAt;
     private final AtomicReference<EngineLifecycleState> state;
     private final AtomicInteger activeRequests = new AtomicInteger(0);
+    /** 生命周期任务执行器（优雅关闭的异步等待），未注入时回退 commonPool */
+    private volatile Executor lifecycleExecutor;
 
     public EngineInstance(QueryEngine engine, UserContext userContext) {
         this.engine = engine;
@@ -118,7 +122,16 @@ public class EngineInstance {
                 logger.error("Error during graceful shutdown for engine: {}", key, e);
                 forceClose();
             }
-        });
+        }, lifecycleExecutorOrDefault());
+    }
+
+    public void setLifecycleExecutor(Executor lifecycleExecutor) {
+        this.lifecycleExecutor = lifecycleExecutor;
+    }
+
+    private Executor lifecycleExecutorOrDefault() {
+        Executor e = this.lifecycleExecutor;
+        return e != null ? e : ForkJoinPool.commonPool();
     }
 
     /**

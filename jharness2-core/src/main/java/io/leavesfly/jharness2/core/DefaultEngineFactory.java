@@ -15,6 +15,7 @@ import io.leavesfly.jharness2.engine.tool.builtin.shell.BashTool;
 import io.leavesfly.jharness2.engine.tool.builtin.meta.SkillTool;
 import io.leavesfly.jharness2.engine.ext.skill.SkillLoader;
 import io.leavesfly.jharness2.core.engine.EngineCustomizer;
+import io.leavesfly.jharness2.core.engine.EngineExecutors;
 import io.leavesfly.jharness2.engine.ext.evolution.EvolutionEngine;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -40,19 +41,21 @@ public class DefaultEngineFactory implements EngineFactory {
             new FileReadTool(),
             new FileWriteTool(),
             new GrepTool(),
-            new GlobTool(),
-            new BashTool()
+            new GlobTool()
     );
 
     private final EngineConfig engineConfig;
     private final WorkspaceInitializer workspaceInitializer;
     private final List<EngineCustomizer> customizers;
+    private final EngineExecutors engineExecutors;
 
     public DefaultEngineFactory(EngineConfig engineConfig,
                                 WorkspaceInitializer workspaceInitializer,
-                                @Autowired(required = false) List<EngineCustomizer> customizers) {
+                                @Autowired(required = false) List<EngineCustomizer> customizers,
+                                @Autowired(required = false) EngineExecutors engineExecutors) {
         this.engineConfig = engineConfig;
         this.workspaceInitializer = workspaceInitializer;
+        this.engineExecutors = engineExecutors;
         this.customizers = customizers != null
                 ? customizers.stream().sorted(Comparator.comparingInt(EngineCustomizer::getOrder)).toList()
                 : List.of();
@@ -92,6 +95,9 @@ public class DefaultEngineFactory implements EngineFactory {
         // 2. 工具注册表 + 内置工具
         ToolRegistry toolRegistry = new ToolRegistry();
         BUILTIN_TOOLS.forEach(toolRegistry::register);
+        if (engineConfig.getTools().isBashEnabled()) {
+            toolRegistry.register(new BashTool());
+        }
 
         // 3. 技能系统
         SkillRegistry skillRegistry = SkillLoader.loadAll(workspace);
@@ -104,6 +110,12 @@ public class DefaultEngineFactory implements EngineFactory {
         QueryEngine engine = new QueryEngine(llmClient, toolRegistry, systemPrompt, engineConfig.getMaxTurns());
         engine.setWorkingDirectory(workspace);
         engine.getCostTracker().setModelName(model);
+
+        // 注入有界线程池，避免阻塞式 Agent 循环/工具执行占满 commonPool
+        if (engineExecutors != null) {
+            engine.setExecutor(engineExecutors.getAgentExecutor());
+            engine.getToolCallDispatcher().setToolExecutor(engineExecutors.getToolExecutor());
+        }
 
         EngineContext engineContext = new EngineContext();
         engineContext.setSkillRegistry(skillRegistry);
@@ -123,7 +135,11 @@ public class DefaultEngineFactory implements EngineFactory {
                 context.getUserId(), context.getSessionId(), model, workspace,
                 customizers.size(), toolRegistry.size());
 
-        return new EngineInstance(engine, context);
+        EngineInstance instance = new EngineInstance(engine, context);
+        if (engineExecutors != null) {
+            instance.setLifecycleExecutor(engineExecutors.getAgentExecutor());
+        }
+        return instance;
     }
 
     private String buildSystemPrompt(String userId, Path workspace, SkillRegistry skillRegistry) {

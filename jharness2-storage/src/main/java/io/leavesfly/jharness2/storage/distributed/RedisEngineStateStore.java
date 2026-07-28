@@ -8,6 +8,7 @@ import io.leavesfly.jharness2.core.distributed.EngineStateStore;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.data.redis.core.script.RedisScript;
 
 import java.time.Duration;
 import java.util.Optional;
@@ -27,6 +28,29 @@ public class RedisEngineStateStore implements EngineStateStore {
     private static final String STATE_PREFIX = "jharness2:engine:state:";
     private static final String OWNER_PREFIX = "jharness2:engine:owner:";
     private static final String COUNT_PREFIX = "jharness2:engine:count:";
+
+    /** 原子“未超限则递增”：KEYS[1]=计数 key, ARGV[1]=上限，返回 1=占位成功 */
+    private static final RedisScript<Long> TRY_INCREMENT_SCRIPT = RedisScript.of(
+            "local current = tonumber(redis.call('get', KEYS[1]) or '0') "
+                    + "if current >= tonumber(ARGV[1]) then return 0 end "
+                    + "redis.call('incr', KEYS[1]) return 1", Long.class);
+
+    /** 递减但不低于 0，返回递减后的值 */
+    private static final RedisScript<Long> DECREMENT_SCRIPT = RedisScript.of(
+            "local current = tonumber(redis.call('get', KEYS[1]) or '0') "
+                    + "if current <= 0 then redis.call('set', KEYS[1], '0') return 0 end "
+                    + "return redis.call('decr', KEYS[1])", Long.class);
+
+    /** 原子获取或续租所有权：KEYS[1]=owner key, ARGV[1]=nodeId, ARGV[2]=租约秒 */
+    private static final RedisScript<Long> ACQUIRE_OWNERSHIP_SCRIPT = RedisScript.of(
+            "local owner = redis.call('get', KEYS[1]) "
+                    + "if owner and owner ~= ARGV[1] then return 0 end "
+                    + "redis.call('set', KEYS[1], ARGV[1], 'EX', tonumber(ARGV[2])) return 1", Long.class);
+
+    /** 仅当所有者是自己时才释放 */
+    private static final RedisScript<Long> RELEASE_OWNERSHIP_SCRIPT = RedisScript.of(
+            "if redis.call('get', KEYS[1]) == ARGV[1] then return redis.call('del', KEYS[1]) end return 0",
+            Long.class);
 
     private final StringRedisTemplate redis;
     private final ObjectMapper mapper;
@@ -93,30 +117,42 @@ public class RedisEngineStateStore implements EngineStateStore {
 
     @Override
     public void decrementUserCount(String userId) {
-        redis.opsForValue().decrement(COUNT_PREFIX + userId);
+        // 不让计数跌到负数：异常路径下的多次递减会把后续配额判定带偏
+        Long remaining = redis.execute(DECREMENT_SCRIPT,
+                java.util.List.of(COUNT_PREFIX + userId));
+        if (remaining == null) {
+            redis.opsForValue().decrement(COUNT_PREFIX + userId);
+        }
     }
 
+    /**
+     * 原子“校验上限并递增”：避免多节点并发时同时通过校验而突破每用户引擎数上限。
+     */
+    @Override
+    public boolean tryIncrementUserCount(String userId, int maxCount) {
+        Long result = redis.execute(TRY_INCREMENT_SCRIPT,
+                java.util.List.of(COUNT_PREFIX + userId), String.valueOf(maxCount));
+        return result != null && result == 1L;
+    }
+
+    /**
+     * 原子获取/续租所有权：“不存在则写入，已存在且属于自己则续租”必须一步完成，
+     * 否则 setIfAbsent→get→expire 之间的窗口会导致所有权判定错误。
+     */
     @Override
     public boolean tryAcquireOwnership(String cacheKey, String nodeId, Duration lease) {
-        Boolean acquired = redis.opsForValue()
-                .setIfAbsent(OWNER_PREFIX + cacheKey, nodeId, lease);
-        if (Boolean.TRUE.equals(acquired)) {
-            return true;
-        }
-        // 如果已有所有权且是自己的，续租
-        String currentOwner = redis.opsForValue().get(OWNER_PREFIX + cacheKey);
-        if (nodeId.equals(currentOwner)) {
-            redis.expire(OWNER_PREFIX + cacheKey, lease);
-            return true;
-        }
-        return false;
+        Long result = redis.execute(ACQUIRE_OWNERSHIP_SCRIPT,
+                java.util.List.of(OWNER_PREFIX + cacheKey),
+                nodeId, String.valueOf(Math.max(1, lease.toSeconds())));
+        return result != null && result == 1L;
     }
 
+    /**
+     * 只删除属于自己的租约（原子 compare-and-delete），避免误删已被其他节点接管的所有权。
+     */
     @Override
     public void releaseOwnership(String cacheKey, String nodeId) {
-        String currentOwner = redis.opsForValue().get(OWNER_PREFIX + cacheKey);
-        if (nodeId.equals(currentOwner)) {
-            redis.delete(OWNER_PREFIX + cacheKey);
-        }
+        redis.execute(RELEASE_OWNERSHIP_SCRIPT,
+                java.util.List.of(OWNER_PREFIX + cacheKey), nodeId);
     }
 }

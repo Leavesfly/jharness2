@@ -37,7 +37,12 @@ public class UsageAggregator {
      * 记录一次用量。
      */
     public void record(UsageRecord record) {
+        if (record.getTotalTokens() <= 0) {
+            return;
+        }
         String dailyKey = record.getUserId() + ":" + record.getDate();
+        // 先回填持久层基线，避免重启后的第一笔记账把当日已用量重置为 0
+        getDailyUsage(record.getUserId(), record.getDate());
         dailyUsage.computeIfAbsent(dailyKey, k -> new AtomicLong(0))
                 .addAndGet(record.getTotalTokens());
 
@@ -60,11 +65,11 @@ public class UsageAggregator {
 
     /**
      * 获取用户今日总用量。
+     * <p>
+     * 内存无记录时会从持久层回填（服务重启/多副本场景下避免配额被“清零”）。
      */
     public long getDailyUsage(String userId) {
-        String key = userId + ":" + LocalDate.now();
-        AtomicLong usage = dailyUsage.get(key);
-        return usage != null ? usage.get() : 0;
+        return getDailyUsage(userId, LocalDate.now());
     }
 
     /**
@@ -73,7 +78,28 @@ public class UsageAggregator {
     public long getDailyUsage(String userId, LocalDate date) {
         String key = userId + ":" + date;
         AtomicLong usage = dailyUsage.get(key);
-        return usage != null ? usage.get() : 0;
+        if (usage != null) {
+            return usage.get();
+        }
+        return loadFromStore(userId, date, key);
+    }
+
+    /**
+     * 从持久层读取当日用量并回填到内存，使后续判定走内存路径。
+     */
+    private long loadFromStore(String userId, LocalDate date, String key) {
+        io.leavesfly.jharness2.core.spi.UsageStore store = this.usageStore;
+        if (store == null) {
+            return 0;
+        }
+        try {
+            long persisted = store.getDailyTokens(userId, date);
+            dailyUsage.computeIfAbsent(key, k -> new AtomicLong(persisted));
+            return persisted;
+        } catch (Exception e) {
+            logger.warn("Failed to load persisted usage for user={}, date={}: {}", userId, date, e.getMessage());
+            return 0;
+        }
     }
 
     /**

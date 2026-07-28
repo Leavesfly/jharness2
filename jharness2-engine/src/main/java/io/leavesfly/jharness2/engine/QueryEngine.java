@@ -30,9 +30,13 @@ import org.slf4j.LoggerFactory;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.Executor;
+import java.util.concurrent.ForkJoinPool;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Consumer;
 
@@ -62,7 +66,11 @@ public class QueryEngine implements AutoCloseable {
     private final CostTracker costTracker = new CostTracker();
     private final List<ConversationMessage> messages = Collections.synchronizedList(new ArrayList<>());
     private final AtomicBoolean cancelled = new AtomicBoolean(false);
+    /** 同一引擎（session）同时只允许一个 ReAct 循环在跑，避免消息历史被并发写花 */
+    private final AtomicBoolean busy = new AtomicBoolean(false);
     private volatile Path workingDirectory;
+    /** Agent 循环执行器（由外部注入有界线程池，未注入时回退 commonPool 保持兼容） */
+    private volatile Executor executor;
 
     // --- 可选核心子系统（与 ReAct 循环直接相关） ---
     private volatile PermissionChecker permissionChecker;
@@ -89,9 +97,25 @@ public class QueryEngine implements AutoCloseable {
     }
 
     public CompletableFuture<Void> submitMessage(String prompt, Consumer<StreamEvent> eventConsumer) {
-        return CompletableFuture.runAsync(() -> {
-            cancelled.set(false);
+        // 同 session 互斥：并发的第二条消息直接快速失败，防止两个 ReAct 循环交错写 messages
+        if (!busy.compareAndSet(false, true)) {
+            return CompletableFuture.failedFuture(new EngineBusyException(
+                    "Engine is busy processing another message for this session"));
+        }
+        // 仅在成功获得 busy 后重置取消标志，避免误清除上一请求的取消状态
+        cancelled.set(false);
 
+        try {
+            return runReactLoop(prompt, eventConsumer);
+        } catch (RuntimeException ex) {
+            // 线程池饱和拒绝等同步异常：必须释放 busy，否则引擎永久卡在忙碌态
+            busy.set(false);
+            return CompletableFuture.failedFuture(ex);
+        }
+    }
+
+    private CompletableFuture<Void> runReactLoop(String prompt, Consumer<StreamEvent> eventConsumer) {
+        return CompletableFuture.runAsync(() -> {
             Span sessionSpan = tracer.startSpan("submit-message", Map.of("prompt_length", prompt.length()));
             try {
                 // Input Guardrail 检查
@@ -231,7 +255,19 @@ public class QueryEngine implements AutoCloseable {
             } finally {
                 sessionSpan.close();
             }
-        });
+        }, executorOrDefault()).whenComplete((v, e) -> busy.set(false));
+    }
+
+    private Executor executorOrDefault() {
+        Executor e = this.executor;
+        return e != null ? e : ForkJoinPool.commonPool();
+    }
+
+    /**
+     * 当前引擎是否正在处理消息。
+     */
+    public boolean isBusy() {
+        return busy.get();
     }
 
     private com.fasterxml.jackson.databind.JsonNode parseArgs(String arguments) {
@@ -282,7 +318,8 @@ public class QueryEngine implements AutoCloseable {
             try {
                 persister.persist(new ArrayList<>(messages));
             } catch (Exception e) {
-                logger.debug("Session persist failed (ignored): {}", e.getMessage());
+                // 持久化失败意味着宕机/驱逐时会丢数据，必须可观测
+                logger.warn("Session persist failed (messages may be lost on restart): {}", e.getMessage());
             }
         }
     }
@@ -305,8 +342,50 @@ public class QueryEngine implements AutoCloseable {
     // --- 消息管理 ---
 
     public void loadMessages(List<ConversationMessage> history) {
+        List<ConversationMessage> repaired = repairDanglingToolCalls(history);
         messages.clear();
-        messages.addAll(history);
+        messages.addAll(repaired);
+    }
+
+    /**
+     * 修复悬空的 tool_calls：中途取消/异常/强杀可能落库“有 tool_calls 但无 tool_result”的半成品历史，
+     * 恢复后直接调 LLM 会被 OpenAI 兼容 API 拒绝（400），导致会话永久损坏。
+     * 这里为缺失的 toolCallId 补合成 tool_result，标注执行被中断。
+     */
+    static List<ConversationMessage> repairDanglingToolCalls(List<ConversationMessage> history) {
+        List<ConversationMessage> repaired = new ArrayList<>(history.size());
+        int synthesized = 0;
+        for (int i = 0; i < history.size(); i++) {
+            ConversationMessage msg = history.get(i);
+            repaired.add(msg);
+            if (msg.getRole() != ConversationMessage.Role.ASSISTANT
+                    || msg.getToolCalls() == null || msg.getToolCalls().isEmpty()) {
+                continue;
+            }
+            // 收集紧随其后的 TOOL 消息已覆盖的 toolCallId
+            Set<String> resolved = new HashSet<>();
+            int j = i + 1;
+            while (j < history.size() && history.get(j).getRole() == ConversationMessage.Role.TOOL) {
+                resolved.add(history.get(j).getToolCallId());
+                repaired.add(history.get(j));
+                j++;
+            }
+            // 为缺失的 toolCallId 补合成结果，保证每个 tool_call 都有对应的 tool 消息
+            for (ConversationMessage.ToolCall call : msg.getToolCalls()) {
+                if (!resolved.contains(call.getId())) {
+                    String toolName = call.getFunction() != null ? call.getFunction().getName() : "unknown";
+                    repaired.add(ConversationMessage.toolResult(call.getId(), toolName,
+                            "[Tool execution was interrupted before completion (engine restart/cancel)]"));
+                    synthesized++;
+                }
+            }
+            i = j - 1;
+        }
+        if (synthesized > 0) {
+            logger.info("Repaired conversation history: synthesized {} missing tool result(s) for dangling tool calls",
+                    synthesized);
+        }
+        return repaired;
     }
 
     public List<ConversationMessage> getMessages() {
@@ -411,6 +490,14 @@ public class QueryEngine implements AutoCloseable {
 
     public void setMiddlewarePipeline(MiddlewarePipeline middlewarePipeline) {
         this.middlewarePipeline = middlewarePipeline;
+    }
+
+    public void setExecutor(Executor executor) {
+        this.executor = executor;
+    }
+
+    public Executor getExecutor() {
+        return executor;
     }
 
     public void setWorkingDirectory(Path workingDirectory) {

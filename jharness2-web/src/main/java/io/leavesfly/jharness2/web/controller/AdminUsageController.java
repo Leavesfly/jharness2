@@ -2,6 +2,7 @@ package io.leavesfly.jharness2.web.controller;
 
 import io.leavesfly.jharness2.core.spi.ModelUsageSummary;
 import io.leavesfly.jharness2.core.spi.UsageStore;
+import io.leavesfly.jharness2.web.security.AuthzSupport;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
@@ -12,6 +13,8 @@ import java.util.Map;
 
 /**
  * 用量查询管理接口 —— 提供用户用量统计和历史查询。
+ * <p>
+ * userId 入参仅管理员可用；普通用户只能查自己的用量。
  */
 @RestController
 @RequestMapping("/api/admin/usage")
@@ -45,7 +48,7 @@ public class AdminUsageController {
     public ResponseEntity<?> dailyUsage(Authentication auth,
                                          @RequestParam(required = false) String userId,
                                          @RequestParam String date) {
-        String targetUserId = (userId != null) ? userId : auth.getName();
+        String targetUserId = AuthzSupport.resolveTargetUserId(auth, userId);
         LocalDate targetDate = LocalDate.parse(date);
         long tokens = usageStore.getDailyTokens(targetUserId, targetDate);
         return ResponseEntity.ok(Map.of(
@@ -63,7 +66,7 @@ public class AdminUsageController {
                                            @RequestParam(required = false) String userId,
                                            @RequestParam int year,
                                            @RequestParam int month) {
-        String targetUserId = (userId != null) ? userId : auth.getName();
+        String targetUserId = AuthzSupport.resolveTargetUserId(auth, userId);
         long tokens = usageStore.getMonthlyTokens(targetUserId, year, month);
         return ResponseEntity.ok(Map.of(
                 "userId", targetUserId,
@@ -81,7 +84,7 @@ public class AdminUsageController {
                                            @RequestParam(required = false) String userId,
                                            @RequestParam int year,
                                            @RequestParam int month) {
-        String targetUserId = (userId != null) ? userId : auth.getName();
+        String targetUserId = AuthzSupport.resolveTargetUserId(auth, userId);
         LocalDate from = LocalDate.of(year, month, 1);
         LocalDate to = from.plusMonths(1);
         List<ModelUsageSummary> summaries = usageStore.getModelUsageSummary(targetUserId, from, to);

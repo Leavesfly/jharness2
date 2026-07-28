@@ -18,6 +18,10 @@ jharness2:
     default-api-key: ${LLM_API_KEY:}
     max-total-engines: 500
     engine-idle-timeout-minutes: 15
+    tools:
+      # 多用户生产环境默认禁用 bash：bash 以应用进程身份在宿主机执行，
+      # 命令黑名单无法替代 OS 级沙箱；仅在具备容器/独立系统用户隔离时手动开启
+      bash-enabled: ${BASH_TOOL_ENABLED:false}
 
   workspace:
     root: ${WORKSPACE_ROOT:/data/jharness2/workspaces}

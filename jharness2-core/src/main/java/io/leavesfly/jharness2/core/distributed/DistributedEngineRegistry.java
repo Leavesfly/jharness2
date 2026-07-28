@@ -55,68 +55,91 @@ public class DistributedEngineRegistry implements UserEngineRegistry {
                 .expireAfterAccess(Duration.ofMinutes(engineConfig.getEngineIdleTimeoutMinutes()))
                 .maximumSize(engineConfig.getMaxTotalEngines())
                 .removalListener((String key, EngineInstance instance, RemovalCause cause) -> {
-                    if (instance != null && cause != RemovalCause.EXPLICIT) {
-                        // 仅处理非手动驱逐（超时/容量淘汰），手动 evict 已在调用方处理
-                        logger.info("Evicting engine from local cache: key={}, cause={}", key, cause);
-                        instance.close();
-                        onEngineRemoved(key, instance);
+                    if (instance == null) {
+                        return;
                     }
+                    if (cause == RemovalCause.EXPLICIT) {
+                        // 手动 evict 已在调用方处理（关闭引擎、释放所有权、清理计数）
+                        return;
+                    }
+                    if (cause == RemovalCause.REPLACED) {
+                        // 同 key 被新实例覆盖：此时 Redis 上的状态/所有权/计数属于新实例，
+                        // 在此清理会把刚创建的引擎变成“无主”，只能关闭旧实例本身
+                        logger.info("Engine instance replaced in local cache: key={}", key);
+                        instance.gracefulClose();
+                        return;
+                    }
+                    logger.info("Evicting engine from local cache: key={}, cause={}", key, cause);
+                    // 优雅关闭：等活跃请求完成后再持久化关闭，避免硬杀正在服务的会话
+                    instance.gracefulClose().whenComplete((v, e) -> onEngineRemoved(key, instance));
                 })
                 .build();
     }
-
+    
     @Override
     public EngineInstance getOrCreate(UserContext context) {
         String cacheKey = context.getCacheKey();
-
-        // 1. 本地缓存命中
+        Duration lease = Duration.ofSeconds(engineConfig.getDistributed().getOwnershipLeaseSeconds());
+    
+        // 1. 本地缓存命中：同时续租，避免长会话期间租约到期被其他节点接管
         EngineInstance local = localCache.getIfPresent(cacheKey);
-        if (local != null) {
-            Duration ttl = Duration.ofMinutes(engineConfig.getDistributed().getStateTtlMinutes());
-            stateStore.touch(cacheKey, ttl);
+        if (local != null && local.isRunning()) {
+            stateStore.touch(cacheKey, Duration.ofMinutes(engineConfig.getDistributed().getStateTtlMinutes()));
+            stateStore.tryAcquireOwnership(cacheKey, nodeId, lease);
             return local;
         }
-
-        // 2. 尝试从 Redis 恢复
+        if (local != null) {
+            // 已关闭/关闭中的实例不可复用
+            localCache.invalidate(cacheKey);
+        }
+    
+        // 2. 尝试从 Redis 恢复（先拿到所有权再恢复，避免两个节点同时持有同一 session）
         Optional<EngineState> remoteState = stateStore.load(cacheKey);
         if (remoteState.isPresent()) {
             EngineState state = remoteState.get();
-            Duration lease = Duration.ofSeconds(engineConfig.getDistributed().getOwnershipLeaseSeconds());
-
             if (!stateStore.tryAcquireOwnership(cacheKey, nodeId, lease)) {
                 logger.warn("Engine owned by another node: key={}, owner={}",
                         cacheKey, state.getOwnerNodeId());
                 throw new EngineOwnedByOtherNodeException(
-                        "Engine " + cacheKey + " is active on node " + state.getOwnerNodeId());
+                        "Engine " + cacheKey + " is active on node " + state.getOwnerNodeId(),
+                        state.getOwnerNodeId());
             }
-
-            // 恢复引擎
+    
             UserContext restoreContext = buildContextFromState(context, state);
             EngineInstance restored = engineFactory.restore(
                     restoreContext, state.getMessages(),
                     state.getInputTokens(), state.getOutputTokens());
             localCache.put(cacheKey, restored);
-            logger.info("Restored engine from Redis: key={}, messages={}", cacheKey, state.getMessages().size());
+            logger.info("Restored engine from Redis: key={}, messages={}", cacheKey,
+                    state.getMessages() != null ? state.getMessages().size() : 0);
             return restored;
         }
-
-        // 3. 全新创建（检查分布式引擎计数）
-        int userCount = stateStore.countByUser(context.getUserId());
-        if (userCount >= engineConfig.getMaxEnginesPerUser()) {
+    
+        // 3. 全新创建：原子占位分布式计数，避免多节点同时突破每用户上限
+        if (!stateStore.tryIncrementUserCount(context.getUserId(), engineConfig.getMaxEnginesPerUser())) {
             throw new EngineLimitException(
                     "User " + context.getUserId() + " has reached max engine limit (distributed): "
                             + engineConfig.getMaxEnginesPerUser());
         }
-
-        EngineInstance instance = engineFactory.create(context);
+    
+        EngineInstance instance;
+        try {
+            instance = engineFactory.create(context);
+            if (!stateStore.tryAcquireOwnership(cacheKey, nodeId, lease)) {
+                instance.close();
+                // 创建期竞争：重读状态尽力获取新属主，供上层转发
+                String claimedBy = stateStore.load(cacheKey)
+                        .map(EngineState::getOwnerNodeId).orElse(null);
+                throw new EngineOwnedByOtherNodeException(
+                        "Engine " + cacheKey + " was claimed by another node", claimedBy);
+            }
+            syncStateToRedis(cacheKey, instance);
+        } catch (RuntimeException e) {
+            // 任一步失败都需归还计数，否则计数只增不减会永久堵死该用户
+            stateStore.decrementUserCount(context.getUserId());
+            throw e;
+        }
         localCache.put(cacheKey, instance);
-
-        // 写入 Redis 状态 + 获取所有权 + 计数
-        Duration lease = Duration.ofSeconds(engineConfig.getDistributed().getOwnershipLeaseSeconds());
-        stateStore.tryAcquireOwnership(cacheKey, nodeId, lease);
-        stateStore.incrementUserCount(context.getUserId());
-        syncStateToRedis(cacheKey, instance);
-
         return instance;
     }
 
@@ -151,17 +174,49 @@ public class DistributedEngineRegistry implements UserEngineRegistry {
 
     /**
      * 定期同步本地所有引擎状态到 Redis（由调度器调用）。
+     * <p>
+     * 先续租再写入：若续租失败（说明已被其他节点接管），则立即停止写入并丢弃本地实例，
+     * 否则旧节点会持续用陈旧快照覆盖新节点的会话历史，造成丢消息。
      */
     public void syncAllStates() {
         Duration lease = Duration.ofSeconds(engineConfig.getDistributed().getOwnershipLeaseSeconds());
         localCache.asMap().forEach((key, instance) -> {
             try {
+                if (!stateStore.tryAcquireOwnership(key, nodeId, lease)) {
+                    logger.warn("Lost ownership of engine, dropping local instance: key={}", key);
+                    localCache.invalidate(key);
+                    instance.gracefulClose();
+                    return;
+                }
                 syncStateToRedis(key, instance);
-                stateStore.tryAcquireOwnership(key, nodeId, lease);
             } catch (Exception e) {
                 logger.warn("Failed to sync engine state to Redis: key={}", key, e);
             }
         });
+    }
+
+    /**
+     * 释放本节点所有引擎的所有权并关闭本地实例，供节点排空（drain）使用。
+     * <p>
+     * 不删除 Redis 中的会话状态也不递减计数：引擎要被其他节点接管，而不是销毁。
+     *
+     * @return 成功交出的 cacheKey 列表
+     */
+    public java.util.List<String> releaseAllForMigration() {
+        java.util.List<String> released = new java.util.ArrayList<>();
+        localCache.asMap().forEach((key, instance) -> {
+            try {
+                // 先等活跃请求停下并落库，再把最新状态交给 Redis，最后让渡所有权
+                instance.gracefulClose().join();
+                syncStateToRedis(key, instance);
+                stateStore.releaseOwnership(key, nodeId);
+                released.add(key);
+            } catch (Exception e) {
+                logger.warn("Failed to release engine for migration: key={}", key, e);
+            }
+        });
+        localCache.invalidateAll();
+        return released;
     }
 
     @Override

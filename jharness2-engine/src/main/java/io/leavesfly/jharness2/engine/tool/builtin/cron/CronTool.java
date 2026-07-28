@@ -99,6 +99,11 @@ public class CronTool extends BaseTool<CronToolInput> {
         if (command == null || command.isBlank()) {
             return ToolResult.error("register 操作需要提供 command（要执行的 shell 命令）");
         }
+        // 注册时即校验命令权限，阻断通过延迟执行绕过黑名单的路径
+        if (context != null && context.getPermissionChecker() != null
+                && !context.getPermissionChecker().isCommandAllowed(command)) {
+            return ToolResult.error("权限拒绝: 该命令不允许注册为定时任务");
+        }
 
         try {
             CronJob job = cronScheduler.register(name, cronExpr, ctx -> {
@@ -204,6 +209,12 @@ public class CronTool extends BaseTool<CronToolInput> {
     }
 
     private void executeShellCommand(String command, ToolExecutionContext context) {
+        // 执行时再次校验：cron 任务延迟异步触发，不能依赖注册时的一次性检查
+        if (context != null && context.getPermissionChecker() != null
+                && !context.getPermissionChecker().isCommandAllowed(command)) {
+            logger.warn("Cron command blocked by permission checker: {}", command);
+            return;
+        }
         try {
             ProcessBuilder pb = new ProcessBuilder("bash", "-c", command);
             if (context != null && context.getCwd() != null) {

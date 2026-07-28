@@ -70,6 +70,6 @@ public class LocalWorkspaceStorage implements WorkspaceStorage {
     }
 
     private String sanitize(String input) {
-        return input.replaceAll("[^a-zA-Z0-9._-]", "_");
+        return WorkspacePathNaming.toDirectoryName(input);
     }
 }

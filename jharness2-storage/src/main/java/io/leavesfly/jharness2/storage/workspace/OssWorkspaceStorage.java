@@ -179,6 +179,6 @@ public class OssWorkspaceStorage implements WorkspaceStorage {
     }
 
     private String sanitize(String input) {
-        return input.replaceAll("[^a-zA-Z0-9._-]", "_");
+        return io.leavesfly.jharness2.core.workspace.WorkspacePathNaming.toDirectoryName(input);
     }
 }

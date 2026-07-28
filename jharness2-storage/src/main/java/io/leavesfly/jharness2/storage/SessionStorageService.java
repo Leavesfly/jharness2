@@ -1,9 +1,11 @@
 package io.leavesfly.jharness2.storage;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.leavesfly.jharness2.core.spi.SessionPersistenceService;
+import io.leavesfly.jharness2.engine.message.ConversationMessage;
 import io.leavesfly.jharness2.storage.entity.ChatMessageEntity;
 import io.leavesfly.jharness2.storage.entity.SessionEntity;
 import io.leavesfly.jharness2.storage.repository.ChatMessageRepository;
@@ -132,6 +134,27 @@ public class SessionStorageService implements SessionPersistenceService {
 
     public Optional<SessionEntity> findSession(String userId, String sessionId) {
         return sessionRepository.findByUserIdAndSessionId(userId, sessionId);
+    }
+
+    /**
+     * 加载会话快照(完整消息历史 + token 统计)，供引擎驱逐/重启后恢复上下文。
+     */
+    @Override
+    public Optional<PersistedSession> loadSession(String userId, String sessionId) {
+        return sessionRepository.findByUserIdAndSessionId(userId, sessionId)
+                .filter(entity -> entity.getMessagesJson() != null && !entity.getMessagesJson().isEmpty())
+                .map(entity -> {
+                    try {
+                        List<ConversationMessage> messages = objectMapper.readValue(
+                                entity.getMessagesJson(), new TypeReference<List<ConversationMessage>>() {});
+                        return new PersistedSession(messages,
+                                entity.getInputTokens(), entity.getOutputTokens());
+                    } catch (Exception e) {
+                        logger.warn("Failed to deserialize session snapshot: user={}, session={}, error={}",
+                                userId, sessionId, e.getMessage());
+                        return null;
+                    }
+                });
     }
 
     public List<SessionEntity> listSessions(String userId) {
