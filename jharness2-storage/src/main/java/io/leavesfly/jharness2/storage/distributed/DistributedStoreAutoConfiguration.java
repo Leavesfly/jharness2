@@ -2,7 +2,6 @@ package io.leavesfly.jharness2.storage.distributed;
 
 import io.leavesfly.jharness2.core.distributed.EngineStateStore;
 import io.leavesfly.jharness2.core.distributed.NodeAddressRegistry;
-import io.leavesfly.jharness2.core.distributed.NodeLoadStore;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
@@ -14,7 +13,7 @@ import org.springframework.data.redis.core.StringRedisTemplate;
 /**
  * 分布式存储 Bean 自动配置。
  * <p>
- * 提供 EngineStateStore（Redis）和 NodeLoadStore（内存）的默认实现。
+ * 提供 EngineStateStore（Redis）的默认实现。
  */
 @Configuration
 public class DistributedStoreAutoConfiguration {
@@ -40,14 +39,5 @@ public class DistributedStoreAutoConfiguration {
     public NodeAddressRegistry nodeAddressRegistry(StringRedisTemplate redisTemplate) {
         logger.info("Creating RedisNodeAddressRegistry for cross-node request forwarding");
         return new RedisNodeAddressRegistry(redisTemplate);
-    }
-
-    /**
-     * 节点负载存储（默认内存实现）。
-     */
-    @Bean
-    @ConditionalOnMissingBean(NodeLoadStore.class)
-    public NodeLoadStore inMemoryNodeLoadStore() {
-        return new InMemoryNodeLoadStore();
     }
 }

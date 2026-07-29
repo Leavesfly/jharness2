@@ -1,12 +1,15 @@
 package io.leavesfly.jharness2.core;
 
 import io.leavesfly.jharness2.core.checkpoint.SessionCheckpointService;
-import io.leavesfly.jharness2.core.pipeline.ChatInterceptorChain;
+import io.leavesfly.jharness2.core.metrics.EngineMetrics;
 import io.leavesfly.jharness2.core.quota.ConcurrencyLimiter;
+import io.leavesfly.jharness2.core.quota.QuotaCheckResult;
+import io.leavesfly.jharness2.core.quota.QuotaExceededException;
 import io.leavesfly.jharness2.core.quota.QuotaPolicy;
 import io.leavesfly.jharness2.core.quota.UsageAggregator;
 import io.leavesfly.jharness2.core.quota.UsageRecord;
 import io.leavesfly.jharness2.core.ratelimit.RateLimitExceededException;
+import io.leavesfly.jharness2.core.ratelimit.RateLimiter;
 import io.leavesfly.jharness2.engine.QueryEngine;
 import io.leavesfly.jharness2.engine.stream.StreamEvent;
 import jakarta.annotation.PreDestroy;
@@ -30,7 +33,8 @@ public class ChatService {
     private static final long KEEPALIVE_INTERVAL_MINUTES = 5;
 
     private final UserEngineRegistry engineRegistry;
-    private final ChatInterceptorChain interceptorChain;
+    private final RateLimiter rateLimiter;
+    private final EngineMetrics metrics;
     private final UsageAggregator usageAggregator;
     private final QuotaPolicy quotaPolicy;
     private final ConcurrencyLimiter concurrencyLimiter;
@@ -43,13 +47,15 @@ public class ChatService {
     });
 
     public ChatService(UserEngineRegistry engineRegistry,
-                       @Autowired(required = false) ChatInterceptorChain interceptorChain,
+                       @Autowired(required = false) RateLimiter rateLimiter,
+                       @Autowired(required = false) EngineMetrics metrics,
                        @Autowired(required = false) UsageAggregator usageAggregator,
                        @Autowired(required = false) QuotaPolicy quotaPolicy,
                        @Autowired(required = false) ConcurrencyLimiter concurrencyLimiter,
                        @Autowired(required = false) SessionCheckpointService checkpointService) {
         this.engineRegistry = engineRegistry;
-        this.interceptorChain = interceptorChain != null ? interceptorChain : new ChatInterceptorChain();
+        this.rateLimiter = rateLimiter;
+        this.metrics = metrics;
         this.usageAggregator = usageAggregator;
         this.quotaPolicy = quotaPolicy;
         this.concurrencyLimiter = concurrencyLimiter;
@@ -59,12 +65,16 @@ public class ChatService {
     /**
      * 发送消息并通过类型安全的适配器将流式事件转换为 DTO 回调。
      * <p>
-     * 负责三件与多用户资源治理相关的事：跟踪活跃请求数（支持优雅关闭）、
-     * 占用每用户并发槽位、按本次请求的 token 增量记账（驱动 token 配额）。
+     * 负责多用户资源治理：入口处依次做请求限流、token 配额检查、
+     * 占用每用户并发槽位；结束时按本次请求的 token 增量记账并上报耗时指标。
      */
     public CompletableFuture<Void> chat(UserContext context, String message,
                                         Consumer<ChatEventDto> eventConsumer) {
-        interceptorChain.beforeChat(context, message);
+        if (metrics != null) {
+            metrics.recordChatRequest();
+        }
+        checkRateLimit(context.getUserId());
+        checkTokenQuota(context.getUserId());
         acquireConcurrencySlot(context.getUserId());
 
         EngineInstance instance;
@@ -81,6 +91,7 @@ public class ChatService {
 
         long inputTokensBefore = engine.getCostTracker().getInputTokens();
         long outputTokensBefore = engine.getCostTracker().getOutputTokens();
+        long chatStartNanos = System.nanoTime();
         logger.debug("Submitting message for user={}, session={}",
                 context.getUserId(), context.getSessionId());
 
@@ -104,7 +115,7 @@ public class ChatService {
             // 避免长请求刚结束就因"空闲"被驱逐
             engineRegistry.get(context.getUserId(), context.getSessionId());
             checkpointIfNeeded(instance, error);
-            interceptorChain.afterChat(context, message, error);
+            recordChatMetrics(chatStartNanos, error);
         });
     }
 
@@ -153,6 +164,46 @@ public class ChatService {
             throw new RateLimitExceededException(
                     "Concurrent request limit reached for user: " + userId + " (max " + max + ")",
                     userId, 5);
+        }
+    }
+
+    /**
+     * 每用户请求频率限流（滑动窗口）。
+     */
+    private void checkRateLimit(String userId) {
+        if (rateLimiter == null) {
+            return;
+        }
+        if (!rateLimiter.tryAcquire(userId)) {
+            throw new RateLimitExceededException(
+                    "Rate limit exceeded for user: " + userId, userId, 60);
+        }
+    }
+
+    /**
+     * 每日 token 配额检查。
+     */
+    private void checkTokenQuota(String userId) {
+        if (quotaPolicy == null || usageAggregator == null) {
+            return;
+        }
+        QuotaCheckResult result = quotaPolicy.checkTokenUsage(userId, usageAggregator.getDailyUsage(userId));
+        if (result.isDenied()) {
+            throw new QuotaExceededException(result.getReason(), userId, "token");
+        }
+    }
+
+    /**
+     * 上报本次请求的耗时与错误计数。耗时用请求开始时刻的局部变量传递，
+     * 避免异步完成回调跨线程时丢失计时上下文。
+     */
+    private void recordChatMetrics(long startNanos, Throwable error) {
+        if (metrics == null) {
+            return;
+        }
+        metrics.recordChatDuration(System.nanoTime() - startNanos);
+        if (error != null) {
+            metrics.recordChatError();
         }
     }
 

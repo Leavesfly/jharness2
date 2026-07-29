@@ -1,8 +1,6 @@
 package io.leavesfly.jharness2.storage.checkpoint;
 
-import io.leavesfly.jharness2.core.EngineFactory;
 import io.leavesfly.jharness2.core.checkpoint.*;
-import io.leavesfly.jharness2.core.session.SessionResumeService;
 import io.leavesfly.jharness2.core.spi.CheckpointStore;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -32,12 +30,5 @@ public class CheckpointAutoConfiguration {
     @ConditionalOnBean(CheckpointStore.class)
     public SessionCheckpointService sessionCheckpointService(CheckpointStore store, CheckpointConfig config) {
         return new SessionCheckpointService(store, config);
-    }
-
-    @Bean
-    @ConditionalOnBean(SessionCheckpointService.class)
-    public SessionResumeService sessionResumeService(SessionCheckpointService checkpointService,
-                                                     EngineFactory engineFactory) {
-        return new SessionResumeService(checkpointService, engineFactory);
     }
 }

@@ -20,7 +20,7 @@ import org.springframework.scheduling.annotation.Scheduled;
  * - 当 jharness2.engine.distributed.enabled=true 且 EngineStateStore 可用时，使用分布式注册表
  * - 否则使用本地 Caffeine 注册表（默认）
  * <p>
- * 注意：EngineStateStore / NodeLoadStore 的 Bean 注册由 storage 模块的
+ * 注意：EngineStateStore 的 Bean 注册由 storage 模块的
  * {@code DistributedStoreAutoConfiguration} 提供。
  */
 @Configuration

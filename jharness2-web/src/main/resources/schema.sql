@@ -111,21 +111,6 @@ CREATE TABLE IF NOT EXISTS chat_messages (
 CREATE UNIQUE INDEX IF NOT EXISTS idx_msg_session_seq ON chat_messages(user_id, session_id, seq_no);
 CREATE INDEX IF NOT EXISTS idx_msg_role ON chat_messages(user_id, session_id, role);
 
--- 工作区工件表
-CREATE TABLE IF NOT EXISTS workspace_artifacts (
-    id VARCHAR(36) PRIMARY KEY,
-    user_id VARCHAR(64) NOT NULL,
-    session_id VARCHAR(64),
-    file_path VARCHAR(1024) NOT NULL,
-    mime_type VARCHAR(128),
-    size_bytes BIGINT NOT NULL DEFAULT 0,
-    checksum VARCHAR(128),
-    created_at TIMESTAMP NOT NULL
-);
-
-CREATE INDEX IF NOT EXISTS idx_artifact_user_session ON workspace_artifacts(user_id, session_id);
-CREATE INDEX IF NOT EXISTS idx_artifact_user ON workspace_artifacts(user_id, created_at);
-
 -- 记忆向量索引表（语义检索）
 CREATE TABLE IF NOT EXISTS memory_embeddings (
     id BIGINT AUTO_INCREMENT PRIMARY KEY,
